@@ -295,32 +295,17 @@ class STXConjunctionEngine:
             logger.error(f"Plot generation failed: {e}")
             return None
 
-    def screen_conjunction(self, primary_tle, secondary_tle, days=7):
+    def screen_conjunction(self, primary_tle, secondary_tle, primary_norad=None, secondary_norad=None, days=7):
         """
         Enhanced conjunction screening with auto-detection
+        
+        Args:
+            primary_tle: TLE data for primary object
+            secondary_tle: TLE data for secondary object
+            primary_norad: NORAD ID of primary (if known)
+            secondary_norad: NORAD ID of secondary (if known)
+            days: Screening window in days
         """
-        # Extract NORAD IDs from TLE names (if format is "RSO-XXXXX")
-        primary_norad = None
-        secondary_norad = None
-        
-        # Try to extract NORAD ID from TLE name
-        try:
-            # Check if it's in format like "ISS (International Space Station)" or "RSO-25544"
-            if "NORAD" in primary_tle[0]:
-                primary_norad = int(primary_tle[0].split("NORAD")[1].split(")")[0].strip())
-            elif "-" in primary_tle[0]:
-                primary_norad = int(primary_tle[0].split("-")[-1].split()[0])
-        except:
-            pass
-        
-        try:
-            if "NORAD" in secondary_tle[0]:
-                secondary_norad = int(secondary_tle[0].split("NORAD")[1].split(")")[0].strip())
-            elif "-" in secondary_tle[0]:
-                secondary_norad = int(secondary_tle[0].split("-")[-1].split()[0])
-        except:
-            pass
-        
         # Auto-detect profile for primary object
         if primary_norad:
             profile_type, _ = detect_object_type(primary_norad)

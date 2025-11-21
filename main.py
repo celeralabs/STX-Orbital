@@ -75,7 +75,9 @@ def screen_fleet():
         if not asset_tle or not threat_tle:
             return jsonify({"error": "Satellite Data Unavailable"}), 500
 
-        telemetry = active_engine.screen_conjunction(asset_tle, threat_tle)
+        telemetry = active_engine.screen_conjunction(asset_tle, threat_tle, 
+                                                      primary_norad=asset_id, 
+                                                      secondary_norad=threat_id)
         
         # If GREEN suppression is on and event is suppressed
         if telemetry is None:
