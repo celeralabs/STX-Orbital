@@ -3,39 +3,48 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>STX Orbital – Login</title>
+    <title>STX Orbital – Portal Access</title>
     <link rel="stylesheet" href="style.css">
-    <style>
-        .login-container { max-width: 400px; margin: 100px auto; padding: 40px; background: rgba(0,0,0,0.4); border-radius: 12px; text-align: center; }
-        input { width: 100%; padding: 12px; margin: 10px 0; border: none; border-radius: 6px; }
-        button { width: 100%; padding: 14px; background: #00ffaa; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; }
-        button:hover { background: #00cc88; }
-    </style>
 </head>
 <body>
+    <nav class="navbar">
+        <div class="nav-container">
+            <div class="nav-brand">
+                <span class="brand-icon">◆</span>
+                <span class="brand-text">STX ORBITAL</span>
+            </div>
+            <ul class="nav-menu">
+                <li><a href="index.html">Home</a></li>
+            </ul>
+        </div>
+    </nav>
+
     <div class="login-container">
-        <h1 style="color: #00ffaa;">STX ORBITAL</h1>
-        <p>Portal Access</p>
-        <input type="text" id="username" placeholder="Username" value="admin">
-        <input type="password" id="password" placeholder="Password" value="stx2025">
-        <button onclick="login()">Login</button>
-        <p style="margin-top: 20px; font-size: 0.9em; color: #888;">
-            Demo credentials: admin / stx2025<br>
-            (Auth is hard-coded — you're already in)
-        </p>
+        <div class="login-box">
+            <div class="login-header">
+                <h1>Portal Access</h1>
+                <p class="login-tagline">Authorized Personnel Only</p>
+            </div>
+            <form id="loginForm">
+                <div class="form-group">
+                    <label class="form-label" for="accessCode">Access Code</label>
+                    <input 
+                        type="password" 
+                        id="accessCode" 
+                        class="form-input" 
+                        placeholder="Enter your access code"
+                        autocomplete="off"
+                        required
+                    >
+                </div>
+                <button type="submit" class="btn btn-primary" style="width: 100%;">
+                    Authenticate
+                </button>
+                <div id="errorMessage" class="form-error" style="display: none;"></div>
+            </form>
+        </div>
     </div>
 
-    <script>
-        function login() {
-            const user = document.getElementById('username').value;
-            const pass = document.getElementById('password').value;
-            // No real auth needed — just go to dashboard
-            window.location.href = 'dashboard.html';
-        }
-        // Allow Enter key
-        document.addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') login();
-        });
-    </script>
+    <script src="main.js"></script>
 </body>
 </html>
