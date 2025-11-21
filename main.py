@@ -7,10 +7,10 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 app = Flask(__name__)
 
-print(f"--- STX ORBITAL v3.1 LAUNCHED ---")
+print(f"--- STX ORBITAL v3.1 PRODUCTION ---")
 print(f"Root Directory: {BASE_DIR}")
 print(f"Auto-Detection: ISS/Tiangong/Starlink/OneWeb/Kuiper")
-print(f"Features: Pc calc | Relative velocity | RIC plots | Object type detection")
+print(f"Ready for operator workloads")
 
 # --- EXPLICIT FILE ROUTES ---
 @app.route('/')
@@ -44,163 +44,228 @@ def download_pdf(filename):
     return "File not found", 404
 
 
-# === FULLY FIXED & TESTED /screen ENDPOINT ===
+# === PRODUCTION /screen ENDPOINT ===
 @app.route('/screen', methods=['POST'])
 def screen_fleet():
+    """
+    Production conjunction screening endpoint.
+    
+    Requires TLE file upload with 1+ satellites.
+    
+    Modes:
+    - SINGLE SAT (1 TLE): Screens against high-value assets (ISS/Tiangong)
+    - DUAL SAT (2 TLEs): Screens sat-to-sat conjunction
+    - FLEET (3+ TLEs): Screens primary vs fleet members
+    """
     auth_header = request.headers.get('Authorization')
     if auth_header != 'Bearer stx-authorized-user':
-        return jsonify({"error": "Unauthorized: Payment Required"}), 401
+        return jsonify({"error": "Unauthorized: Enterprise License Required"}), 401
 
-    suppress_green = request.form.get('suppress_green', 'false').lower() == 'true'
-    active_engine = STXConjunctionEngine(suppress_green=suppress_green)
-
+    # Require file upload
     if 'file' not in request.files:
-        return jsonify({"error": "No TLE file uploaded"}), 400
+        return jsonify({"error": "No TLE file uploaded. Please select a file."}), 400
     
     file = request.files['file']
-    if file.filename == '' or not file.filename.lower().endswith(('.tle', '.txt')):
-        return jsonify({"error": "Invalid or missing TLE file"}), 400
+    if not file or file.filename == '':
+        return jsonify({"error": "No file selected. Please upload a TLE file."}), 400
+    
+    if not file.filename.lower().endswith(('.tle', '.txt')):
+        return jsonify({"error": "Invalid file type. Upload .tle or .txt file"}), 400
+
+    # Get configuration parameters
+    suppress_green = request.form.get('suppress_green', 'false').lower() == 'true'
+    
+    # Create fresh engine instance for this request
+    active_engine = STXConjunctionEngine(suppress_green=suppress_green)
 
     try:
+        # Parse TLE file
         content = file.read().decode('utf-8', errors='ignore').strip()
         lines = [l.strip() for l in content.splitlines() if l.strip()]
+        
         if len(lines) < 2:
-            return jsonify({"error": "TLE file must contain at least two lines"}), 400
+            return jsonify({"error": "TLE file must contain at least 2 lines (name + TLE lines 1 & 2)"}), 400
 
-        # Parse all valid TLEs from uploaded file
+        # Extract all valid TLEs from file
         tle_list = []
         i = 0
         while i < len(lines):
-            name = lines[i] if not lines[i].startswith('1 ') else "SATELLITE"
-            if name.startswith('1 '):
+            # Check if this line is a satellite name or TLE line 1
+            if lines[i].startswith('1 '):
+                # No name line, use generic name
                 name = "SATELLITE"
+                line1 = lines[i]
+                if i + 1 >= len(lines):
+                    break
+                line2 = lines[i + 1]
             else:
+                # Has name line
+                name = lines[i]
+                if i + 2 >= len(lines):
+                    break
+                line1 = lines[i + 1]
+                line2 = lines[i + 2]
                 i += 1
-
-            if i + 1 >= len(lines):
-                break
-            line1 = lines[i]
-            line2 = lines[i + 1]
+            
+            # Validate TLE format
             if line1.startswith('1 ') and line2.startswith('2 '):
                 try:
-                    norad_id = int(line2[2:7])
+                    norad_id = int(line2[2:7].strip())
                     tle_list.append((name, line1, line2, norad_id))
-                except:
+                except ValueError:
+                    # Invalid NORAD ID, skip this TLE
                     pass
+            
             i += 2
 
         if not tle_list:
-            return jsonify({"error": "No valid TLEs found in file"}), 400
+            return jsonify({"error": "No valid TLEs found in file. Check format."}), 400
 
-        # Primary = first satellite in file
-        primary_name, primary_l1, primary_l2, _ = tle_list[0]
-        primary_tle = [primary_name, primary_l1, primary_l2]
+        num_sats = len(tle_list)
+        print(f">>> Parsed {num_sats} valid TLE(s) from file")
 
         threats = []
         last_telemetry = None
 
-        # SINGLE SATELLITE MODE (most common)
-        if len(tle_list) == 1:
-            print(f">>> Single satellite screening: {primary_name} vs full catalog")
-            catalog = active_engine.st_client.tle_latest(
-                orderby='NORAD_CAT_ID asc', format='tle', limit=2000)  # ~2 seconds
-            cat_lines = catalog.splitlines()
-
-            for j in range(0, len(cat_lines), 3):
-                if j + 2 >= len(cat_lines):
-                    break
-                sec_name = cat_lines[j].strip() or "UNKNOWN"
-                sec_l1 = cat_lines[j+1]
-                sec_l2 = cat_lines[j+2]
-                if not (sec_l1.startswith('1 ') and sec_l2.startswith('2 ')):
-                    continue
-                try:
-                    sec_norad = int(sec_l2[2:7])
-                except:
-                    continue
-
-                telemetry = active_engine.screen_conjunction(
-                    primary_tle, [sec_name, sec_l1, sec_l2],
-                    primary_norad=None, secondary_norad=sec_norad)
-
-                if telemetry is None:  # GREEN + suppressed
-                    continue
-
-                last_telemetry = telemetry
-                ai_decision = active_engine.generate_maneuver_plan(telemetry)
-                pdf_filename = active_engine.generate_pdf_report(telemetry, ai_decision)
-
-                pc_display = "< 1e-10" if telemetry['pc'] < 1e-10 else f"{telemetry['pc']:.2e}"
-
-                threats.append({
-                    "asset": telemetry['primary'],
-                    "intruder": telemetry['secondary'],
-                    "min_km": round(telemetry['min_dist_km'], 3),
-                    "relative_velocity_kms": round(telemetry['relative_velocity_kms'], 2),
-                    "pc": pc_display,
-                    "tca": telemetry['tca_utc'],
-                    "pdf_url": pdf_filename,
-                    "risk_level": telemetry['risk_level']
+        # === SINGLE SATELLITE MODE ===
+        # Screen uploaded satellite against high-value targets (ISS, Tiangong)
+        if num_sats == 1:
+            name, l1, l2, norad_id = tle_list[0]
+            primary_tle = [name, l1, l2]
+            print(f">>> SINGLE SAT: {name} (NORAD {norad_id}) screening vs ISS + Tiangong")
+            
+            # Screen against ISS (25544)
+            try:
+                iss_tle = active_engine.fetch_live_tle(25544)
+                if iss_tle:
+                    telemetry = active_engine.screen_conjunction(
+                        primary_tle, iss_tle,
+                        primary_norad=norad_id,
+                        secondary_norad=25544
+                    )
+                    
+                    if telemetry:  # Not suppressed
+                        last_telemetry = telemetry
+                        ai_decision = active_engine.generate_maneuver_plan(telemetry)
+                        pdf_filename = active_engine.generate_pdf_report(telemetry, ai_decision)
+                        pc_display = "< 1e-10" if telemetry['pc'] < 1e-10 else f"{telemetry['pc']:.2e}"
+                        
+                        threats.append({
+                            "asset": telemetry['primary'],
+                            "intruder": telemetry['secondary'],
+                            "min_km": round(telemetry['min_dist_km'], 3),
+                            "relative_velocity_kms": round(telemetry['relative_velocity_kms'], 2),
+                            "pc": pc_display,
+                            "tca": telemetry['tca_utc'],
+                            "pdf_url": pdf_filename,
+                            "risk_level": telemetry['risk_level']
+                        })
+            except Exception as e:
+                print(f"ISS screening error: {e}")
+            
+            # Screen against Tiangong (48274)
+            try:
+                tiangong_tle = active_engine.fetch_live_tle(48274)
+                if tiangong_tle:
+                    telemetry = active_engine.screen_conjunction(
+                        primary_tle, tiangong_tle,
+                        primary_norad=norad_id,
+                        secondary_norad=48274
+                    )
+                    
+                    if telemetry:  # Not suppressed
+                        last_telemetry = telemetry
+                        ai_decision = active_engine.generate_maneuver_plan(telemetry)
+                        pdf_filename = active_engine.generate_pdf_report(telemetry, ai_decision)
+                        pc_display = "< 1e-10" if telemetry['pc'] < 1e-10 else f"{telemetry['pc']:.2e}"
+                        
+                        threats.append({
+                            "asset": telemetry['primary'],
+                            "intruder": telemetry['secondary'],
+                            "min_km": round(telemetry['min_dist_km'], 3),
+                            "relative_velocity_kms": round(telemetry['relative_velocity_kms'], 2),
+                            "pc": pc_display,
+                            "tca": telemetry['tca_utc'],
+                            "pdf_url": pdf_filename,
+                            "risk_level": telemetry['risk_level']
+                        })
+            except Exception as e:
+                print(f"Tiangong screening error: {e}")
+            
+            if not threats:
+                return jsonify({
+                    "status": "all_clear",
+                    "message": "All clear - no YELLOW/RED conjunctions detected in 7-day window"
                 })
 
-        # FLEET MODE (multiple TLEs in file)
+        # === FLEET MODE (2+ SATELLITES) ===
+        # Screen primary (first TLE) against all other satellites in file
         else:
-            print(f">>> Fleet mode: {primary_name} vs {len(tle_list)-1} secondaries")
+            primary_name, primary_l1, primary_l2, primary_norad = tle_list[0]
+            primary_tle = [primary_name, primary_l1, primary_l2]
+            print(f">>> FLEET MODE: {primary_name} (primary) vs {num_sats-1} fleet members")
+            
             for name, l1, l2, norad_id in tle_list[1:]:
-                secondary_tle = active_engine.fetch_live_tle(norad_id)
-                if not secondary_tle:
+                secondary_tle = [name, l1, l2]
+                
+                try:
+                    telemetry = active_engine.screen_conjunction(
+                        primary_tle, secondary_tle,
+                        primary_norad=primary_norad,
+                        secondary_norad=norad_id
+                    )
+                    
+                    if telemetry is None:  # GREEN + suppressed
+                        continue
+                    
+                    last_telemetry = telemetry
+                    ai_decision = active_engine.generate_maneuver_plan(telemetry)
+                    pdf_filename = active_engine.generate_pdf_report(telemetry, ai_decision)
+                    pc_display = "< 1e-10" if telemetry['pc'] < 1e-10 else f"{telemetry['pc']:.2e}"
+                    
+                    threats.append({
+                        "asset": telemetry['primary'],
+                        "intruder": telemetry['secondary'],
+                        "min_km": round(telemetry['min_dist_km'], 3),
+                        "relative_velocity_kms": round(telemetry['relative_velocity_kms'], 2),
+                        "pc": pc_display,
+                        "tca": telemetry['tca_utc'],
+                        "pdf_url": pdf_filename,
+                        "risk_level": telemetry['risk_level']
+                    })
+                    
+                except Exception as e:
+                    print(f"Screening error for {name}: {e}")
                     continue
-
-                telemetry = active_engine.screen_conjunction(
-                    primary_tle, secondary_tle,
-                    primary_norad=None, secondary_norad=norad_id)
-
-                if telemetry is None:
-                    continue
-
-                last_telemetry = telemetry
-                ai_decision = active_engine.generate_maneuver_plan(telemetry)
-                pdf_filename = active_engine.generate_pdf_report(telemetry, ai_decision)
-
-                pc_display = "< 1e-10" if telemetry['pc'] < 1e-10 else f"{telemetry['pc']:.2e}"
-
-                threats.append({
-                    "asset": telemetry['primary'],
-                    "intruder": telemetry['secondary'],
-                    "min_km": round(telemetry['min_dist_km'], 3),
-                    "relative_velocity_kms": round(telemetry['relative_velocity_kms'], 2),
-                    "pc": pc_display,
-                    "tca": telemetry['tca_utc'],
-                    "pdf_url": pdf_filename,
-                    "risk_level": telemetry['risk_level']
+            
+            if not threats:
+                return jsonify({
+                    "status": "all_clear",
+                    "message": "All clear - no YELLOW/RED conjunctions detected within fleet"
                 })
 
-        if not threats:
-            return jsonify({
-                "status": "suppressed",
-                "message": "All clear – no YELLOW/RED conjunctions in next 7 days"
-            })
-
+        # Build response with threat data
         response_data = {
             "status": "success",
             "risk_level": threats[0]['risk_level'],
             "threats": threats,
-            "decision": active_engine.generate_maneuver_plan(last_telemetry),
-            "profile": last_telemetry['profile'],
-            "profile_type": last_telemetry['profile_type'],
-            "geometry": last_telemetry['geometry'],
-            "has_ric_plot": last_telemetry.get('ric_plot') is not None
+            "decision": active_engine.generate_maneuver_plan(last_telemetry) if last_telemetry else "No actionable events",
+            "profile": last_telemetry['profile'] if last_telemetry else "N/A",
+            "profile_type": last_telemetry['profile_type'] if last_telemetry else "N/A",
+            "geometry": last_telemetry['geometry'] if last_telemetry else {},
+            "has_ric_plot": last_telemetry.get('ric_plot') is not None if last_telemetry else False
         }
-        if last_telemetry.get('maneuver'):
+        
+        if last_telemetry and last_telemetry.get('maneuver'):
             response_data['maneuver'] = last_telemetry['maneuver']
-
+        
         return jsonify(response_data)
 
     except Exception as e:
-        print(f"ERROR: {e}")
+        print(f"SCREENING ERROR: {e}")
         import traceback
         traceback.print_exc()
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": f"Screening failed: {str(e)}"}), 500
 
 
 if __name__ == '__main__':
