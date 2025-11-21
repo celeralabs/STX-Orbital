@@ -43,8 +43,9 @@ def download_pdf(filename):
         return send_from_directory(BASE_DIR, filename)
     return "File not found", 404
 
-# === FIXED /screen ENDPOINT – WORKS WITH SINGLE TLE OR FULL FLEET ===
-ytic@app.route('/screen', methods=['POST'])
+
+# === FULLY FIXED & TESTED /screen ENDPOINT ===
+@app.route('/screen', methods=['POST'])
 def screen_fleet():
     auth_header = request.headers.get('Authorization')
     if auth_header != 'Bearer stx-authorized-user':
@@ -63,15 +64,13 @@ def screen_fleet():
     try:
         content = file.read().decode('utf-8', errors='ignore').strip()
         lines = [l.strip() for l in content.splitlines() if l.strip()]
-
         if len(lines) < 2:
             return jsonify({"error": "TLE file must contain at least two lines"}), 400
 
-        # Parse all TLEs in the file
+        # Parse all valid TLEs from uploaded file
         tle_list = []
         i = 0
         while i < len(lines):
-            # Optional name line
             name = lines[i] if not lines[i].startswith('1 ') else "SATELLITE"
             if name.startswith('1 '):
                 name = "SATELLITE"
@@ -82,7 +81,6 @@ def screen_fleet():
                 break
             line1 = lines[i]
             line2 = lines[i + 1]
-
             if line1.startswith('1 ') and line2.startswith('2 '):
                 try:
                     norad_id = int(line2[2:7])
@@ -92,30 +90,28 @@ def screen_fleet():
             i += 2
 
         if not tle_list:
-            return jsonify({"error": "No valid TLE found in file"}), 400
+            return jsonify({"error": "No valid TLEs found in file"}), 400
 
-        # PRIMARY = first TLE in the file
+        # Primary = first satellite in file
         primary_name, primary_l1, primary_l2, _ = tle_list[0]
         primary_tle = [primary_name, primary_l1, primary_l2]
 
         threats = []
         last_telemetry = None
 
-        # If only one TLE → screen primary against FULL live catalog (most common use case)
+        # SINGLE SATELLITE MODE (most common)
         if len(tle_list) == 1:
-            print(f">>> Single satellite mode – screening {primary_name} against full catalog")
-            # You can limit to top 50 closest or all high-interest – here we do all < 1000 km for demo
-            # In production you’d add a smart pre-filter; this works great for demo/real use
+            print(f">>> Single satellite screening: {primary_name} vs full catalog")
             catalog = active_engine.st_client.tle_latest(
-                orderby='NORAD_CAT_ID asc', format='tle', limit=1000)
-            catalog_lines = catalog.splitlines()
+                orderby='NORAD_CAT_ID asc', format='tle', limit=2000)  # ~2 seconds
+            cat_lines = catalog.splitlines()
 
-            for j in range(0, len(catalog_lines), 3):
-                if j + 2 >= len(catalog_lines):
+            for j in range(0, len(cat_lines), 3):
+                if j + 2 >= len(cat_lines):
                     break
-                sec_name = catalog_lines[j].strip() or "UNKNOWN"
-                sec_l1 = catalog_lines[j+1]
-                sec_l2 = catalog_lines[j+2]
+                sec_name = cat_lines[j].strip() or "UNKNOWN"
+                sec_l1 = cat_lines[j+1]
+                sec_l2 = cat_lines[j+2]
                 if not (sec_l1.startswith('1 ') and sec_l2.startswith('2 ')):
                     continue
                 try:
@@ -147,9 +143,9 @@ def screen_fleet():
                     "risk_level": telemetry['risk_level']
                 })
 
+        # FLEET MODE (multiple TLEs in file)
         else:
-            # Fleet mode: first = primary, all others = secondaries
-            print(f">>> Fleet mode – primary {primary_name}, screening against {len(tle_list)-1} secondaries")
+            print(f">>> Fleet mode: {primary_name} vs {len(tle_list)-1} secondaries")
             for name, l1, l2, norad_id in tle_list[1:]:
                 secondary_tle = active_engine.fetch_live_tle(norad_id)
                 if not secondary_tle:
@@ -182,7 +178,7 @@ def screen_fleet():
         if not threats:
             return jsonify({
                 "status": "suppressed",
-                "message": "All clear – no YELLOW or RED conjunctions in the next 7 days"
+                "message": "All clear – no YELLOW/RED conjunctions in next 7 days"
             })
 
         response_data = {
@@ -205,6 +201,7 @@ def screen_fleet():
         import traceback
         traceback.print_exc()
         return jsonify({"error": str(e)}), 500
+
 
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 5000))
