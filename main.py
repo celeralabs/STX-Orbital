@@ -1,20 +1,26 @@
 from flask import Flask, request, jsonify, send_from_directory
-from stx_engine_v3_1 import STXConjunctionEngine
 import os
 import time
+import traceback as tb
 
 # GET ABSOLUTE PATH
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 app = Flask(__name__)
 
-print(f"--- STX ORBITAL v3.1 PRODUCTION (TIERED SCREENING) ---")
+print(f"--- STX ORBITAL v3.1 BULLETPROOF ---")
 print(f"Root Directory: {BASE_DIR}")
-print(f"Tier 1: Manned Assets (ISS, Tiangong)")
-print(f"Tier 2: High-Risk Auto-Detection (decay, unstable)")
-print(f"Tier 3: Full Catalog Sweep")
 
-# --- EXPLICIT FILE ROUTES ---
+# Import engine with error handling
+try:
+    from stx_engine_v3_1 import STXConjunctionEngine
+    print("✓ Engine imported successfully")
+except Exception as e:
+    print(f"✗ ENGINE IMPORT FAILED: {e}")
+    tb.print_exc()
+    STXConjunctionEngine = None
+
+# --- FILE ROUTES ---
 @app.route('/')
 def root():
     return send_from_directory(BASE_DIR, 'index.html')
@@ -46,109 +52,115 @@ def download_pdf(filename):
     return "File not found", 404
 
 
-# === SIMPLIFIED TIERED SCREENING ENDPOINT ===
+# === BULLETPROOF SCREENING ENDPOINT ===
 @app.route('/screen', methods=['POST'])
 def screen_fleet():
     """
-    Production conjunction screening with tiered priority system.
-    
-    Tier 1: MANNED ASSETS (ISS, Tiangong) - Always checked first
-    Tier 2/3: CATALOG SWEEP - Check all objects, auto-detect high-risk during sweep
-    
-    For single satellite: Screens against manned + catalog
-    For fleet: Screens primary against fleet members only
+    Bulletproof screening with maximum error handling
     """
-    auth_header = request.headers.get('Authorization')
-    if auth_header != 'Bearer stx-authorized-user':
-        return jsonify({"error": "Unauthorized: Enterprise License Required"}), 401
-
-    # Require file upload
-    if 'file' not in request.files:
-        return jsonify({"error": "No TLE file uploaded. Please select a file."}), 400
-    
-    file = request.files['file']
-    if not file or file.filename == '':
-        return jsonify({"error": "No file selected. Please upload a TLE file."}), 400
-    
-    if not file.filename.lower().endswith(('.tle', '.txt')):
-        return jsonify({"error": "Invalid file type. Upload .tle or .txt file"}), 400
-
-    # Get configuration parameters
-    suppress_green = request.form.get('suppress_green', 'false').lower() == 'true'
-    catalog_limit = int(request.form.get('catalog_limit', '5000'))  # Default 5k objects
-    
-    # Create fresh engine instance
-    active_engine = STXConjunctionEngine(suppress_green=suppress_green)
-
     try:
-        # Parse TLE file
-        content = file.read().decode('utf-8', errors='ignore').strip()
-        lines = [l.strip() for l in content.splitlines() if l.strip()]
+        # Check if engine loaded
+        if STXConjunctionEngine is None:
+            return jsonify({"error": "Engine module failed to load - check server logs"}), 500
         
-        if len(lines) < 2:
-            return jsonify({"error": "TLE file must contain at least 2 lines"}), 400
+        # Auth check
+        auth_header = request.headers.get('Authorization')
+        if auth_header != 'Bearer stx-authorized-user':
+            return jsonify({"error": "Unauthorized"}), 401
 
-        # Extract all valid TLEs from file
-        tle_list = []
-        i = 0
-        while i < len(lines):
-            if lines[i].startswith('1 '):
-                name = "SATELLITE"
-                line1 = lines[i]
-                if i + 1 >= len(lines):
-                    break
-                line2 = lines[i + 1]
-            else:
-                name = lines[i]
-                if i + 2 >= len(lines):
-                    break
-                line1 = lines[i + 1]
-                line2 = lines[i + 2]
-                i += 1
+        # File validation
+        if 'file' not in request.files:
+            return jsonify({"error": "No file uploaded"}), 400
+        
+        file = request.files['file']
+        if not file or file.filename == '':
+            return jsonify({"error": "No file selected"}), 400
+        
+        if not file.filename.lower().endswith(('.tle', '.txt')):
+            return jsonify({"error": "Invalid file type"}), 400
+
+        # Config
+        suppress_green = request.form.get('suppress_green', 'false').lower() == 'true'
+        catalog_limit = int(request.form.get('catalog_limit', '5000'))
+        
+        print(f"\n=== NEW REQUEST ===")
+        print(f"File: {file.filename}")
+        print(f"Suppress GREEN: {suppress_green}")
+        print(f"Catalog limit: {catalog_limit}")
+        
+        # Initialize engine
+        try:
+            active_engine = STXConjunctionEngine(suppress_green=suppress_green)
+            print("✓ Engine initialized")
+        except Exception as e:
+            print(f"✗ Engine init failed: {e}")
+            tb.print_exc()
+            return jsonify({"error": f"Engine initialization failed: {str(e)}"}), 500
+
+        # Parse TLE file
+        try:
+            content = file.read().decode('utf-8', errors='ignore').strip()
+            lines = [l.strip() for l in content.splitlines() if l.strip()]
             
-            if line1.startswith('1 ') and line2.startswith('2 '):
-                try:
-                    norad_id = int(line2[2:7].strip())
-                    tle_list.append((name, line1, line2, norad_id))
-                except ValueError:
-                    pass
-            
-            i += 2
+            if len(lines) < 2:
+                return jsonify({"error": "File too short"}), 400
 
-        if not tle_list:
-            return jsonify({"error": "No valid TLEs found in file. Check format."}), 400
+            # Extract TLEs
+            tle_list = []
+            i = 0
+            while i < len(lines):
+                if lines[i].startswith('1 '):
+                    name = "SATELLITE"
+                    line1 = lines[i]
+                    if i + 1 >= len(lines):
+                        break
+                    line2 = lines[i + 1]
+                else:
+                    name = lines[i]
+                    if i + 2 >= len(lines):
+                        break
+                    line1 = lines[i + 1]
+                    line2 = lines[i + 2]
+                    i += 1
+                
+                if line1.startswith('1 ') and line2.startswith('2 '):
+                    try:
+                        norad_id = int(line2[2:7].strip())
+                        tle_list.append((name, line1, line2, norad_id))
+                    except:
+                        pass
+                
+                i += 2
 
-        num_sats = len(tle_list)
-        print(f">>> Parsed {num_sats} valid TLE(s) from file")
+            if not tle_list:
+                return jsonify({"error": "No valid TLEs found"}), 400
 
+            print(f"✓ Parsed {len(tle_list)} TLE(s)")
+
+        except Exception as e:
+            print(f"✗ TLE parsing failed: {e}")
+            tb.print_exc()
+            return jsonify({"error": f"TLE parsing failed: {str(e)}"}), 500
+
+        # Start screening
         threats = []
         last_telemetry = None
-        screening_stats = {
-            "manned_checked": 0,
-            "high_risk_checked": 0,
-            "catalog_checked": 0,
-            "total_time_sec": 0
-        }
+        stats = {"manned_checked": 0, "high_risk_checked": 0, "catalog_checked": 0, "total_time_sec": 0}
         start_time = time.time()
 
-        # === SINGLE SATELLITE MODE (TIERED SCREENING) ===
-        if num_sats == 1:
+        # === SINGLE SATELLITE MODE ===
+        if len(tle_list) == 1:
             name, l1, l2, norad_id = tle_list[0]
             primary_tle = [name, l1, l2]
-            print(f">>> SINGLE SAT TIERED SCREENING: {name} (NORAD {norad_id})")
+            print(f">>> SINGLE SAT MODE: {name} (NORAD {norad_id})")
             
-            # ===== TIER 1: MANNED ASSETS (CRITICAL) =====
-            print(">>> TIER 1: Checking manned assets...")
-            manned_targets = [
-                (25544, "ISS"),
-                (48274, "Tiangong")
-            ]
-            
-            for target_id, target_name in manned_targets:
+            # TIER 1: Manned assets
+            print(">>> Tier 1: Manned assets")
+            for target_id, target_name in [(25544, "ISS"), (48274, "Tiangong")]:
                 try:
                     target_tle = active_engine.fetch_live_tle(target_id)
                     if not target_tle:
-                        print(f"  ! Failed to fetch {target_name}")
+                        print(f"  ! {target_name}: Fetch failed")
                         continue
                     
                     telemetry = active_engine.screen_conjunction(
@@ -157,12 +169,17 @@ def screen_fleet():
                         secondary_norad=target_id
                     )
                     
-                    screening_stats["manned_checked"] += 1
+                    stats["manned_checked"] += 1
                     
-                    if telemetry:  # Not suppressed
+                    if telemetry:
                         last_telemetry = telemetry
-                        ai_decision = active_engine.generate_maneuver_plan(telemetry)
-                        pdf_filename = active_engine.generate_pdf_report(telemetry, ai_decision)
+                        try:
+                            ai_decision = active_engine.generate_maneuver_plan(telemetry)
+                            pdf_filename = active_engine.generate_pdf_report(telemetry, ai_decision)
+                        except Exception as e:
+                            print(f"  ! PDF generation failed: {e}")
+                            pdf_filename = "report_generation_failed.pdf"
+                            
                         pc_display = "< 1e-10" if telemetry['pc'] < 1e-10 else f"{telemetry['pc']:.2e}"
                         
                         threats.append({
@@ -182,14 +199,14 @@ def screen_fleet():
                         print(f"  ✓ {target_name}: GREEN (suppressed)")
                         
                 except Exception as e:
-                    print(f"  ! Error screening {target_name}: {e}")
+                    print(f"  ! {target_name} error: {e}")
+                    tb.print_exc()
             
-            # ===== TIER 2/3: CATALOG SWEEP WITH HIGH-RISK DETECTION =====
-            print(f">>> TIER 2/3: Catalog sweep (limit={catalog_limit}) with high-risk detection...")
+            # TIER 2/3: Catalog sweep
+            print(f">>> Tier 2/3: Catalog sweep (limit={catalog_limit})")
             
             if active_engine.st_client:
                 try:
-                    # Get latest GP catalog
                     catalog_query = active_engine.st_client.tle_latest(
                         orderby='NORAD_CAT_ID asc',
                         limit=catalog_limit,
@@ -204,17 +221,17 @@ def screen_fleet():
                             if j + 2 >= len(cat_lines):
                                 break
                             
-                            cat_name = cat_lines[j].strip() or "UNKNOWN"
-                            cat_l1 = cat_lines[j + 1]
-                            cat_l2 = cat_lines[j + 2]
-                            
-                            if not (cat_l1.startswith('1 ') and cat_l2.startswith('2 ')):
-                                continue
-                            
                             try:
+                                cat_name = cat_lines[j].strip() or "UNKNOWN"
+                                cat_l1 = cat_lines[j + 1]
+                                cat_l2 = cat_lines[j + 2]
+                                
+                                if not (cat_l1.startswith('1 ') and cat_l2.startswith('2 ')):
+                                    continue
+                                
                                 cat_norad = int(cat_l2[2:7].strip())
                                 
-                                # Skip if already checked in manned tier
+                                # Skip manned
                                 if cat_norad in [25544, 48274]:
                                     continue
                                 
@@ -226,23 +243,32 @@ def screen_fleet():
                                     secondary_norad=cat_norad
                                 )
                                 
-                                screening_stats["catalog_checked"] += 1
+                                stats["catalog_checked"] += 1
                                 cat_count += 1
                                 
                                 if cat_count % 1000 == 0:
-                                    print(f"  ... {cat_count} objects checked")
+                                    print(f"  ... {cat_count} checked")
                                 
-                                if telemetry:  # Not suppressed
+                                if telemetry:
                                     last_telemetry = telemetry
-                                    ai_decision = active_engine.generate_maneuver_plan(telemetry)
-                                    pdf_filename = active_engine.generate_pdf_report(telemetry, ai_decision)
+                                    
+                                    try:
+                                        ai_decision = active_engine.generate_maneuver_plan(telemetry)
+                                        pdf_filename = active_engine.generate_pdf_report(telemetry, ai_decision)
+                                    except Exception as e:
+                                        print(f"  ! PDF gen failed for {cat_norad}: {e}")
+                                        pdf_filename = "report_generation_failed.pdf"
+                                    
                                     pc_display = "< 1e-10" if telemetry['pc'] < 1e-10 else f"{telemetry['pc']:.2e}"
                                     
-                                    # Assess priority for this object
-                                    priority, reason = active_engine.assess_risk_priority(cat_norad, cat_l1, cat_l2)
-                                    
-                                    if priority == "HIGH-RISK":
-                                        screening_stats["high_risk_checked"] += 1
+                                    # Assess priority
+                                    try:
+                                        priority, reason = active_engine.assess_risk_priority(cat_norad, cat_l1, cat_l2)
+                                        if priority == "HIGH-RISK":
+                                            stats["high_risk_checked"] += 1
+                                    except Exception as e:
+                                        print(f"  ! Risk assessment failed for {cat_norad}: {e}")
+                                        priority, reason = ("CATALOG", "Standard catalog object")
                                     
                                     threats.append({
                                         "asset": telemetry['primary'],
@@ -258,99 +284,105 @@ def screen_fleet():
                                     })
                                     
                             except Exception as e:
+                                # Silent fail for individual catalog objects
                                 continue
                         
-                        print(f"  ✓ Catalog sweep complete: {screening_stats['catalog_checked']} objects checked")
-                        print(f"  ✓ High-risk objects detected: {screening_stats['high_risk_checked']}")
+                        print(f"  ✓ Complete: {stats['catalog_checked']} checked, {stats['high_risk_checked']} high-risk")
                         
                 except Exception as e:
                     print(f"  ! Catalog sweep failed: {e}")
-                    import traceback
-                    traceback.print_exc()
+                    tb.print_exc()
+            else:
+                print("  ! Space-Track client not available")
 
-        # === FLEET MODE (NO CATALOG SWEEP) ===
+        # === FLEET MODE ===
         else:
+            print(f">>> FLEET MODE: {len(tle_list)} satellites")
             primary_name, primary_l1, primary_l2, primary_norad = tle_list[0]
             primary_tle = [primary_name, primary_l1, primary_l2]
-            print(f">>> FLEET MODE: {primary_name} (primary) vs {num_sats-1} fleet members")
             
             for name, l1, l2, sec_norad in tle_list[1:]:
-                secondary_tle = [name, l1, l2]
-                
                 try:
+                    secondary_tle = [name, l1, l2]
+                    
                     telemetry = active_engine.screen_conjunction(
                         primary_tle, secondary_tle,
                         primary_norad=primary_norad,
                         secondary_norad=sec_norad
                     )
                     
-                    screening_stats["catalog_checked"] += 1
+                    stats["catalog_checked"] += 1
                     
-                    if telemetry is None:  # GREEN + suppressed
-                        continue
-                    
-                    last_telemetry = telemetry
-                    ai_decision = active_engine.generate_maneuver_plan(telemetry)
-                    pdf_filename = active_engine.generate_pdf_report(telemetry, ai_decision)
-                    pc_display = "< 1e-10" if telemetry['pc'] < 1e-10 else f"{telemetry['pc']:.2e}"
-                    
-                    # Fleet objects: assess priority
-                    priority, reason = active_engine.assess_risk_priority(sec_norad, l1, l2)
-                    
-                    threats.append({
-                        "asset": telemetry['primary'],
-                        "intruder": telemetry['secondary'],
-                        "priority": priority,
-                        "priority_reason": reason,
-                        "min_km": round(telemetry['min_dist_km'], 3),
-                        "relative_velocity_kms": round(telemetry['relative_velocity_kms'], 2),
-                        "pc": pc_display,
-                        "tca": telemetry['tca_utc'],
-                        "pdf_url": pdf_filename,
-                        "risk_level": telemetry['risk_level']
-                    })
-                    
+                    if telemetry:
+                        last_telemetry = telemetry
+                        ai_decision = active_engine.generate_maneuver_plan(telemetry)
+                        pdf_filename = active_engine.generate_pdf_report(telemetry, ai_decision)
+                        pc_display = "< 1e-10" if telemetry['pc'] < 1e-10 else f"{telemetry['pc']:.2e}"
+                        
+                        priority, reason = active_engine.assess_risk_priority(sec_norad, l1, l2)
+                        
+                        threats.append({
+                            "asset": telemetry['primary'],
+                            "intruder": telemetry['secondary'],
+                            "priority": priority,
+                            "priority_reason": reason,
+                            "min_km": round(telemetry['min_dist_km'], 3),
+                            "relative_velocity_kms": round(telemetry['relative_velocity_kms'], 2),
+                            "pc": pc_display,
+                            "tca": telemetry['tca_utc'],
+                            "pdf_url": pdf_filename,
+                            "risk_level": telemetry['risk_level']
+                        })
                 except Exception as e:
-                    print(f"Screening error for {name}: {e}")
-                    continue
+                    print(f"  ! Fleet member {name} error: {e}")
 
-        screening_stats["total_time_sec"] = round(time.time() - start_time, 2)
+        stats["total_time_sec"] = round(time.time() - start_time, 2)
         
-        # Sort threats by priority: MANNED > HIGH-RISK > CATALOG
+        # Sort by priority
         priority_order = {"MANNED": 0, "HIGH-RISK": 1, "CATALOG": 2}
-        threats.sort(key=lambda x: (priority_order.get(x["priority"], 3), -x["min_km"]))
+        threats.sort(key=lambda x: (priority_order.get(x["priority"], 3), -x.get("min_km", 9999)))
         
         if not threats:
+            print(f"✓ All clear ({stats['total_time_sec']}s)")
             return jsonify({
                 "status": "all_clear",
                 "message": "All clear - no YELLOW/RED conjunctions detected",
-                "screening_stats": screening_stats
+                "screening_stats": stats
             })
 
         # Build response
+        print(f"✓ {len(threats)} threats found ({stats['total_time_sec']}s)")
+        
         response_data = {
             "status": "success",
-            "risk_level": threats[0]['risk_level'],
+            "risk_level": threats[0].get('risk_level', 'UNKNOWN'),
             "threats": threats,
             "decision": active_engine.generate_maneuver_plan(last_telemetry) if last_telemetry else "No actionable events",
-            "profile": last_telemetry['profile'] if last_telemetry else "N/A",
-            "profile_type": last_telemetry['profile_type'] if last_telemetry else "N/A",
-            "geometry": last_telemetry['geometry'] if last_telemetry else {},
+            "profile": last_telemetry.get('profile', 'N/A') if last_telemetry else "N/A",
+            "profile_type": last_telemetry.get('profile_type', 'N/A') if last_telemetry else "N/A",
+            "geometry": last_telemetry.get('geometry', {}) if last_telemetry else {},
             "has_ric_plot": last_telemetry.get('ric_plot') is not None if last_telemetry else False,
-            "screening_stats": screening_stats
+            "screening_stats": stats
         }
         
         if last_telemetry and last_telemetry.get('maneuver'):
             response_data['maneuver'] = last_telemetry['maneuver']
         
-        print(f">>> SCREENING COMPLETE: {len(threats)} threats | {screening_stats['total_time_sec']}s")
         return jsonify(response_data)
 
     except Exception as e:
-        print(f"SCREENING ERROR: {e}")
-        import traceback
-        traceback.print_exc()
-        return jsonify({"error": f"Screening failed: {str(e)}"}), 500
+        print(f"\n=== CRITICAL ERROR ===")
+        print(f"Error: {e}")
+        print(f"Type: {type(e).__name__}")
+        tb.print_exc()
+        print(f"=== END ERROR ===\n")
+        
+        # ALWAYS return JSON
+        return jsonify({
+            "error": f"Screening failed: {str(e)}",
+            "error_type": type(e).__name__,
+            "message": "Check server logs for details"
+        }), 500
 
 
 if __name__ == '__main__':
