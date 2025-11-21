@@ -217,7 +217,7 @@ const DashboardPage = {
 
         if (stats) {
             html += `
-                <div style="margin:24px 0; padding:20px; background:var(--card-bg); border-radius:8px; border:1px solid var(--border);">
+                <div style="margin:24px 0; padding:20px; background:var(--surface-light); border-radius:8px; border:1px solid var(--border);">
                     <h3 style="color:var(--primary); margin-bottom:12px; font-size:1em;">Screening Statistics</h3>
                     <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr)); gap:12px; font-size:0.9em;">
                         <div><strong>Manned Assets:</strong> ${stats.manned_checked}</div>
@@ -283,7 +283,7 @@ const DashboardPage = {
                 : '';
 
             return `
-                <div style="margin:24px 0; padding:20px; background:var(--card-bg); border-radius:8px; border-left:5px solid ${borderColor}">
+                <div style="margin:24px 0; padding:20px; background:var(--surface-light); border-radius:8px; border-left:5px solid ${borderColor}">
                     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; flex-wrap:wrap; gap:8px;">
                         <div style="font-size:0.95em;">
                             <div><strong>Asset:</strong> ${t.asset}</div>
@@ -311,7 +311,7 @@ const DashboardPage = {
         if (data.screening_stats) {
             const stats = data.screening_stats;
             threatsHTML += `
-                <div style="margin:24px 0; padding:20px; background:var(--card-bg); border-radius:8px; border:1px solid var(--border);">
+                <div style="margin:24px 0; padding:20px; background:var(--surface-light); border-radius:8px; border:1px solid var(--border);">
                     <h3 style="color:var(--primary); margin-bottom:12px; font-size:1em;">Screening Statistics</h3>
                     <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr)); gap:12px; font-size:0.9em;">
                         <div><strong>Manned Assets:</strong> ${stats.manned_checked}</div>

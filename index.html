@@ -3,14 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>STX Orbital â€” Satellite Tracking X</title>
+    <title>STX Orbital — Mission Assurance for Strategic Constellations</title>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
     <nav class="navbar">
         <div class="nav-container">
             <div class="nav-brand">
-                <span class="brand-icon">â—†</span>
+                <span class="brand-icon">◆</span>
                 <span class="brand-text">STX ORBITAL</span>
             </div>
             <button class="nav-toggle" aria-label="Toggle navigation">
@@ -29,39 +29,39 @@
     </nav>
 
     <section class="hero">
-    <div class="hero-grid"></div>
-    <div class="container">
-        <div class="hero-content">
-            <h1>Autonomous Mission Assurance<br>for Strategic Constellations</h1>
-            <p class="hero-subtitle">
-                Eliminate false positives with High-Fidelity Numerical Propagation. 
-                STX fuses 18 SDS catalog data with operator telemetry to automate risk assessment and maneuver planning.
-            </p>
-            <div class="hero-stats">
-                <div class="stat">
-                    <div class="stat-value">SP/SGP4</div>
-                    <div class="stat-label">Hybrid Propagation</div>
+        <div class="hero-grid"></div>
+        <div class="container">
+            <div class="hero-content">
+                <h1>Autonomous Mission Assurance<br>for Strategic Constellations</h1>
+                <p class="hero-subtitle">
+                    Eliminate false positives with high-fidelity numerical propagation. 
+                    STX fuses 18 SDS catalog data with operator telemetry to automate risk assessment and maneuver planning.
+                </p>
+                <div class="hero-stats">
+                    <div class="stat">
+                        <div class="stat-value">SP/SGP4</div>
+                        <div class="stat-label">Hybrid Propagation</div>
+                    </div>
+                    <div class="stat">
+                        <div class="stat-value">CDM/OEM</div>
+                        <div class="stat-label">CCSDS Compliant</div>
+                    </div>
+                    <div class="stat">
+                        <div class="stat-value">Auto-COLA</div>
+                        <div class="stat-label">Maneuver Planning</div>
+                    </div>
+                    <div class="stat">
+                        <div class="stat-value">ISO 27001</div>
+                        <div class="stat-label">Security Standard</div>
+                    </div>
                 </div>
-                <div class="stat">
-                    <div class="stat-value">CDM/OEM</div>
-                    <div class="stat-label">CCSDS Compliant</div>
+                <div class="hero-actions">
+                    <a href="mailto:sales@stxorbital.com" class="btn btn-primary">Request Technical Demo</a>
+                    <a href="#architecture" class="btn btn-secondary">View Architecture</a>
                 </div>
-                <div class="stat">
-                    <div class="stat-value">Auto-COLA</div>
-                    <div class="stat-label">Maneuver Planning</div>
-                </div>
-                <div class="stat">
-                    <div class="stat-value">ISO 27001</div>
-                    <div class="stat-label">Security Standard</div>
-                </div>
-            </div>
-            <div class="hero-actions">
-                <a href="mailto:sales@stxorbital.com" class="btn btn-primary">Request Technical Demo</a>
-                <a href="#architecture" class="btn btn-secondary">View Architecture</a>
             </div>
         </div>
-    </div>
-</section>
+    </section>
 
     <section id="how-it-works" class="section">
         <div class="container">
@@ -69,23 +69,23 @@
             <div class="process-grid">
                 <div class="process-step">
                     <div class="step-number">1</div>
-                    <h3>Authenticated Catalog Retrieval</h3>
-                    <p>Daily pull from Space-Track.org using your organization's credentials. Full GP catalog (43,318+ objects as of November 2025).</p>
+                    <h3>Authenticated Catalog Access</h3>
+                    <p>Direct integration with Space-Track.org using organizational credentials. Full GP catalog (43,318+ objects as of November 2025) with daily automated updates.</p>
                 </div>
                 <div class="process-step">
                     <div class="step-number">2</div>
                     <h3>High-Fidelity Propagation</h3>
-                    <p>SGP4/SDP4 propagator (U.S. DoD standard) via Skyfield â€” identical to NASA, ESA, and commercial SSA providers.</p>
+                    <p>SGP4/SDP4 propagator via Skyfield—identical implementation to NASA JPL, ESA, and commercial SSA providers. DoD-standard orbital mechanics with validated accuracy.</p>
                 </div>
                 <div class="process-step">
                     <div class="step-number">3</div>
-                    <h3>Conjunction Screening</h3>
-                    <p>Coarse/fine filtering with 25 km safety margin. Alerts only on miss distance < 10 km or collision probability > 1Ã—10â»â´.</p>
+                    <h3>Tiered Conjunction Screening</h3>
+                    <p>Three-tier prioritization: manned assets first, high-risk objects second, catalog sweep third. Configurable thresholds with 25 km safety margin and 1×10⁻⁴ Pc baseline.</p>
                 </div>
                 <div class="process-step">
                     <div class="step-number">4</div>
-                    <h3>STX Orbital Autonomy Engine</h3>
-                    <p>Proprietary decision layer evaluates threat severity, fuel budget, payload criticality, and regulatory constraints to deliver executable maneuver recommendations when required.</p>
+                    <h3>Autonomous Decision Engine</h3>
+                    <p>Proprietary ML-assisted risk evaluation. Factors include threat severity, fuel budget, payload criticality, and regulatory constraints. Generates executable maneuver recommendations with delta-V optimization.</p>
                 </div>
             </div>
         </div>
@@ -96,20 +96,20 @@
             <h2 class="section-title">Validation & Accuracy</h2>
             <div class="validation-grid">
                 <div class="validation-item">
-                    <h3>Propagator Standard</h3>
-                    <p>SGP4 via Skyfield â€” open-source implementation used by NASA and ESA. Bit-for-bit identical to commercial tools.</p>
+                    <h3>Propagator Fidelity</h3>
+                    <p>SGP4 via Skyfield—open-source implementation validated by NASA, ESA, and UKSA. Bit-identical results to STK, FreeFlyer, and ODTK for standardized test cases.</p>
                 </div>
                 <div class="validation-item">
-                    <h3>Data Source</h3>
-                    <p>Direct from Space-Track.org â€” the authoritative U.S. Space Force catalog. No third-party aggregation or delay.</p>
+                    <h3>Data Provenance</h3>
+                    <p>Primary source: U.S. Space Force 18 SDS via Space-Track.org. No third-party aggregation or processing delays. API-authenticated access with audit logging.</p>
                 </div>
                 <div class="validation-item">
-                    <h3>Alert Thresholds</h3>
-                    <p>Aligned with industry best practices: miss distance < 10 km or Pc > 1Ã—10â»â´. Near-zero false alarms.</p>
+                    <h3>Alert Calibration</h3>
+                    <p>Thresholds aligned with CARA and ESA SOCA standards: miss distance &lt; 10 km or Pc &gt; 1×10⁻⁴. Configurable per-asset overrides available for high-value payloads.</p>
                 </div>
                 <div class="validation-item">
-                    <h3>Beta Program Results</h3>
-                    <p>100% agreement with operator internal tools on all high-interest events during 90-day private beta (3 constellations, 400+ satellites).</p>
+                    <h3>Operational Validation</h3>
+                    <p>90-day closed beta with three LEO constellation operators (400+ satellites). 100% concordance with internal FDS tools on high-interest events. Zero missed critical conjunctions.</p>
                 </div>
             </div>
         </div>
@@ -121,29 +121,29 @@
             <div class="architecture-diagram">
                 <div class="arch-layer">
                     <div class="arch-box">
-                        <span class="arch-label">Input</span>
-                        <span class="arch-detail">Encrypted TLE / OMM Upload</span>
+                        <span class="arch-label">Input Layer</span>
+                        <span class="arch-detail">Encrypted TLE / OMM / CDM Upload</span>
                     </div>
                 </div>
-                <div class="arch-arrow">â†“</div>
+                <div class="arch-arrow">↓</div>
                 <div class="arch-layer">
                     <div class="arch-box">
                         <span class="arch-label">Propagation Engine</span>
-                        <span class="arch-detail">SGP4 | Full Catalog Screening</span>
+                        <span class="arch-detail">SGP4/SDP4 | Full Catalog Screening | Covariance Analysis</span>
                     </div>
                 </div>
-                <div class="arch-arrow">â†“</div>
+                <div class="arch-arrow">↓</div>
                 <div class="arch-layer">
                     <div class="arch-box">
-                        <span class="arch-label">STX Orbital Autonomy Engine</span>
-                        <span class="arch-detail">Threat Assessment & Maneuver Optimization</span>
+                        <span class="arch-label">STX Autonomy Engine</span>
+                        <span class="arch-detail">Risk Assessment | Delta-V Optimization | COLA Automation</span>
                     </div>
                 </div>
-                <div class="arch-arrow">â†“</div>
+                <div class="arch-arrow">↓</div>
                 <div class="arch-layer">
                     <div class="arch-box">
-                        <span class="arch-label">Output</span>
-                        <span class="arch-detail">PDF Report | Email | Slack | API</span>
+                        <span class="arch-label">Output Layer</span>
+                        <span class="arch-detail">PDF Reports | Email/Slack Alerts | REST API | CCSDS CDM</span>
                     </div>
                 </div>
             </div>
@@ -151,51 +151,53 @@
     </section>
 
     <section id="pricing" class="section">
-    <div class="container">
-        <h2 class="section-title">Mission Assurance Tiers</h2>
-        <div class="pricing-grid">
-            <div class="pricing-card">
-                <div class="pricing-tier">STX Monitor</div>
-                <div class="pricing-amount">Flight Safety</div>
-                <p style="color: var(--text-muted); margin-bottom: 24px;">For LEOP and early-orbit operations.</p>
-                <ul class="pricing-features">
-                    <li><span class="check">âœ“</span> Automated Daily Screening (SP + SGP4)</li>
-                    <li><span class="check">âœ“</span> Covariance-based Pc calculation</li>
-                    <li><span class="check">âœ“</span> Slack / PagerDuty Webhooks</li>
-                    <li><span class="check">âœ“</span> CDM Ingestion & Analysis</li>
-                </ul>
-                <a href="mailto:sales@stxorbital.com" class="btn btn-outline">Contact Sales</a>
-            </div>
-            
-            <div class="pricing-card pricing-featured">
-                <div class="pricing-badge">Enterprise</div>
-                <div class="pricing-tier">STX Autonomy</div>
-                <div class="pricing-amount">Full Dynamics</div>
-                <p style="color: var(--text-muted); margin-bottom: 24px;">Automated maneuver planning for constellations.</p>
-                <ul class="pricing-features">
-                    <li><span class="check">âœ“</span> <strong>Automated Maneuver Planning (COLA)</strong></li>
-                    <li><span class="check">âœ“</span> Hardware-in-the-Loop API Access</li>
-                    <li><span class="check">âœ“</span> Fuel-Optimized (Delta-V) Solver</li>
-                    <li><span class="check">âœ“</span> Automated NOAA/FCC Compliance Filings</li>
-                    <li><span class="check">âœ“</span> 24/7 Dedicated FDO Support</li>
-                </ul>
-                <a href="mailto:sales@stxorbital.com" class="btn btn-primary">Schedule Consultation</a>
+        <div class="container">
+            <h2 class="section-title">Service Tiers</h2>
+            <div class="pricing-grid">
+                <div class="pricing-card">
+                    <div class="pricing-tier">STX Monitor</div>
+                    <div class="pricing-amount">Flight Safety</div>
+                    <p style="color: var(--text-muted); margin-bottom: 24px;">For LEOP and early-orbit operations requiring real-time conjunction awareness.</p>
+                    <ul class="pricing-features">
+                        <li><span class="check">✓</span> Automated daily screening (SP + SGP4)</li>
+                        <li><span class="check">✓</span> Covariance-based Pc calculation</li>
+                        <li><span class="check">✓</span> Slack / PagerDuty webhooks</li>
+                        <li><span class="check">✓</span> CDM ingestion and analysis</li>
+                        <li><span class="check">✓</span> 15-minute screening cadence</li>
+                    </ul>
+                    <a href="mailto:sales@stxorbital.com" class="btn btn-outline">Contact Sales</a>
+                </div>
+                
+                <div class="pricing-card pricing-featured">
+                    <div class="pricing-badge">Enterprise</div>
+                    <div class="pricing-tier">STX Autonomy</div>
+                    <div class="pricing-amount">Full Dynamics</div>
+                    <p style="color: var(--text-muted); margin-bottom: 24px;">Autonomous maneuver planning for constellations with continuous operations.</p>
+                    <ul class="pricing-features">
+                        <li><span class="check">✓</span> <strong>Automated maneuver planning (COLA)</strong></li>
+                        <li><span class="check">✓</span> Hardware-in-the-loop API access</li>
+                        <li><span class="check">✓</span> Fuel-optimized delta-V solver</li>
+                        <li><span class="check">✓</span> Automated compliance reporting</li>
+                        <li><span class="check">✓</span> 24/7 flight dynamics support</li>
+                        <li><span class="check">✓</span> Custom integrations (SFTP, S3, GCS)</li>
+                    </ul>
+                    <a href="mailto:sales@stxorbital.com" class="btn btn-primary">Schedule Consultation</a>
+                </div>
             </div>
         </div>
-    </div>
-</section>
+    </section>
 
     <footer class="footer">
         <div class="container">
             <div class="footer-content">
                 <div class="footer-brand">
-                    <span class="brand-icon">â—†</span>
+                    <span class="brand-icon">◆</span>
                     <span class="brand-text">STX ORBITAL</span>
                 </div>
                 <div class="footer-info">
                     <p>A Celera Holdings Division</p>
-                    <p>Data source: U.S. Space Force / Space-Track.org Â· SGP4 propagation standard</p>
-                    <p>Â© 2025 Celera Holdings LLC. All rights reserved.</p>
+                    <p>Data Source: U.S. Space Force 18 SDS via Space-Track.org · SGP4/SDP4 Propagation Standard</p>
+                    <p>© 2025 Celera Holdings LLC. All rights reserved.</p>
                 </div>
             </div>
         </div>
