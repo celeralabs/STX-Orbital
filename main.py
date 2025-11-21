@@ -49,56 +49,86 @@ def download_pdf(filename):
         return send_from_directory(BASE_DIR, filename)
     return "File not found", 404
 
-# --- API ENDPOINT ---
+# --- API ENDPOINT (NOW SUPPORTS REAL TLE UPLOAD) ---
 @app.route('/screen', methods=['POST'])
 def screen_fleet():
     auth_header = request.headers.get('Authorization')
     if auth_header != 'Bearer stx-authorized-user':
         return jsonify({"error": "Unauthorized: Payment Required"}), 401
 
-    # Get suppress_green parameter (for high-volume constellation ops)
+    # Get suppress_green parameter
     suppress_green = request.form.get('suppress_green', 'false').lower() == 'true'
-    
-    # Initialize engine with suppression setting
     active_engine = STXConjunctionEngine(suppress_green=suppress_green)
 
-    # DEMO MODE: Always screen ISS vs Tiangong
-    # NOTE: Engine will auto-detect ISS (25544) as "Manned Asset - High Caution"
-    asset_id = 25544
-    threat_id = 48274
+    # Check if a TLE file was uploaded
+    if 'file' not in request.files:
+        return jsonify({"error": "No TLE file uploaded"}), 400
+    
+    file = request.files['file']
+    if file.filename == '' or not file.filename.lower().endswith(('.tle', '.txt')):
+        return jsonify({"error": "Invalid or missing TLE file"}), 400
 
     try:
-        print(f">>> Processing Request (suppress_green={suppress_green})...")
-        asset_tle = active_engine.fetch_live_tle(asset_id)
-        threat_tle = active_engine.fetch_live_tle(threat_id)
-        
-        if not asset_tle or not threat_tle:
-            return jsonify({"error": "Satellite Data Unavailable"}), 500
+        content = file.read().decode('utf-8').strip()
+        lines = [l.strip() for l in content.splitlines() if l.strip()]
 
-        telemetry = active_engine.screen_conjunction(asset_tle, threat_tle, 
-                                                      primary_norad=asset_id, 
-                                                      secondary_norad=threat_id)
-        
-        # If GREEN suppression is on and event is suppressed
-        if telemetry is None:
-            return jsonify({
-                "status": "suppressed",
-                "message": "Event filtered (GREEN risk level, below alert thresholds)"
-            })
-        
-        ai_decision = active_engine.generate_maneuver_plan(telemetry)
-        pdf_filename = active_engine.generate_pdf_report(telemetry, ai_decision)
-        
-        # Format Pc for display
-        if telemetry['pc'] < 1e-10:
-            pc_display = "< 1e-10"
-        else:
-            pc_display = f"{telemetry['pc']:.2e}"
-        
-        response_data = {
-            "status": "success",
-            "risk_level": telemetry['risk_level'],
-            "threats": [{
+        # Support both 2-line and 3-line TLE formats
+        if len(lines) < 2:
+            return jsonify({"error": "TLE file must contain at least two lines"}), 400
+
+        # First line may be satellite name (optional)
+        name_line = lines[0] if not lines[0].startswith('1 ') else None
+        tle_start = 1 if name_line else 0
+
+        if (len(lines) - tle_start) % 2 != 0:
+            return jsonify({"error": "Incomplete TLE pairs in file"}), 400
+
+        threats = []
+        last_telemetry = None  # To reuse for AI decision & PDF if needed
+
+        for i in range(tle_start, len(lines), 2):
+            line1 = lines[i]
+            line2 = lines[i + 1]
+
+            if not (line1.startswith('1 ') and line2.startswith('2 ')):
+                continue  # Skip malformed lines
+
+            norad_id = int(line2[2:7])
+            print(f">>> Screening primary asset vs NORAD {norad_id}")
+
+            # Primary asset TLE from uploaded file
+            primary_tle = ["PRIMARY ASSET", line1, line2]
+            if name_line and i == tle_start:
+                primary_tle[0] = name_line
+
+            secondary_tle = active_engine.fetch_live_tle(norad_id)
+            if not secondary_tle:
+                threats.append({
+                    "asset": primary_tle[0],
+                    "intruder": f"NORAD {norad_id} (data unavailable)",
+                    "min_km": "N/A",
+                    "pc": "N/A",
+                    "tca": "N/A",
+                    "risk_level": "UNKNOWN"
+                })
+                continue
+
+            telemetry = active_engine.screen_conjunction(
+                primary_tle, secondary_tle,
+                primary_norad=None,
+                secondary_norad=norad_id
+            )
+
+            if telemetry is None:  # GREEN and suppressed
+                continue
+
+            last_telemetry = telemetry
+            ai_decision = active_engine.generate_maneuver_plan(telemetry)
+            pdf_filename = active_engine.generate_pdf_report(telemetry, ai_decision)
+
+            pc_display = "< 1e-10" if telemetry['pc'] < 1e-10 else f"{telemetry['pc']:.2e}"
+
+            threats.append({
                 "asset": telemetry['primary'],
                 "intruder": telemetry['secondary'],
                 "min_km": round(telemetry['min_dist_km'], 3),
@@ -107,20 +137,31 @@ def screen_fleet():
                 "tca": telemetry['tca_utc'],
                 "pdf_url": pdf_filename,
                 "risk_level": telemetry['risk_level']
-            }],
-            "decision": ai_decision,
-            "profile": telemetry['profile'],
-            "profile_type": telemetry['profile_type'],
-            "geometry": telemetry['geometry'],
-            "has_ric_plot": telemetry.get('ric_plot') is not None
+            })
+
+        if not threats:
+            return jsonify({
+                "status": "suppressed",
+                "message": "No actionable conjunctions found (all GREEN or below threshold)"
+            })
+
+        # Use the last high-interest telemetry for AI decision block
+        response_data = {
+            "status": "success",
+            "risk_level": threats[0]['risk_level'],
+            "threats": threats,
+            "decision": active_engine.generate_maneuver_plan(last_telemetry),
+            "profile": last_telemetry['profile'],
+            "profile_type": last_telemetry['profile_type'],
+            "geometry": last_telemetry['geometry'],
+            "has_ric_plot": last_telemetry.get('ric_plot') is not None
         }
-        
-        # Add maneuver data if available
-        if telemetry.get('maneuver'):
-            response_data['maneuver'] = telemetry['maneuver']
-        
+
+        if last_telemetry.get('maneuver'):
+            response_data['maneuver'] = last_telemetry['maneuver']
+
         return jsonify(response_data)
-        
+
     except Exception as e:
         print(f"ERROR: {e}")
         import traceback
