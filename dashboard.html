@@ -3,22 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>STX Orbital – Screening Portal</title>
+    <title>STX Orbital â€“ Screening Portal</title>
     <link rel="stylesheet" href="style.css">
-    <style>
-        /* Quick inline styles for risk badge colors - add these to style.css permanently */
-        .result-status.green { background: #0f3; color: #000; }
-        .result-status.yellow { background: #ff0; color: #000; }
-        .result-status.red { background: #f00; color: #fff; }
-        .download-btn { display: inline-block; margin-top: 20px; padding: 12px 24px; background: #00ffaa; color: #000; text-decoration: none; border-radius: 6px; font-weight: bold; }
-        .download-btn:hover { background: #00cc88; }
-    </style>
 </head>
 <body>
     <nav class="navbar">
         <div class="nav-container">
             <div class="nav-brand">
-                <span class="brand-icon">◆</span>
+                <span class="brand-icon">â—†</span>
                 <span class="brand-text">STX ORBITAL</span>
             </div>
             <button class="nav-toggle" aria-label="Toggle navigation">
@@ -41,141 +33,29 @@
             </div>
 
             <div id="dropzone" class="dropzone">
-                <div class="dropzone-icon">⬢</div>
+                <div class="dropzone-icon">â¬¢</div>
                 <div class="dropzone-text">Drop TLE file here</div>
-                <div class="dropzone-subtext">or click to browse (.txt or .tle)</div>
-                <input type="file" id="fileInput" accept=".tle,.txt">
-            </div>
-
-            <div id="loading" style="display: none; text-align: center; margin: 40px;">
-                <p>Processing conjunction screening...</p>
+                <div class="dropzone-subtext">or click to browse</div>
+                <input type="file" id="fileInput" accept=".tle,.txt" style="display: none;">
+                <button class="btn btn-primary" onclick="document.getElementById('fileInput').click()">
+                    Select File
+                </button>
             </div>
 
             <div id="resultContainer" style="display: none;">
                 <div class="result-box">
-                    <div id="statusBadge" class="result-status green">RISK LEVEL: GREEN</div>
+                    <div id="statusBadge" class="result-status"></div>
                     <h2 id="resultTitle" class="result-title"></h2>
                     <div id="resultContent" class="result-content"></div>
                     <div id="recommendationBox" class="recommendation-box" style="display: none;">
-                        <h3>Flight Dynamics Officer Assessment</h3>
-                        <div id="recommendationText"></div>
+                        <h3>Autonomous Decision</h3>
+                        <ul id="recommendationList"></ul>
                     </div>
-                    <a id="downloadLink" class="download-btn" style="display: none;">Download PDF Report</a>
                 </div>
             </div>
         </div>
     </div>
 
-    <script>
-        const fileInput = document.getElementById('fileInput');
-        const dropzone = document.getElementById('dropzone');
-        const loading = document.getElementById('loading') || { style: { display: 'none' } };
-        const resultContainer = document.getElementById('resultContainer');
-        const statusBadge = document.getElementById('statusBadge');
-        const resultTitle = document.getElementById('resultTitle');
-        const resultContent = document.getElementById('resultContent');
-        const recommendationBox = document.getElementById('recommendationBox');
-        const recommendationText = document.getElementById('recommendationText');
-        const downloadLink = document.getElementById('downloadLink');
-
-        // Drag & drop
-        dropzone.addEventListener('click', () => fileInput.click());
-
-        dropzone.addEventListener('dragover', (e) => {
-            e.preventDefault();
-            dropzone.style.background = 'rgba(0, 255, 170, 0.1)';
-        });
-
-        dropzone.addEventListener('dragleave', () => {
-            dropzone.style.background = '';
-        });
-
-        dropzone.addEventListener('drop', (e) => {
-            e.preventDefault();
-            dropzone.style.background = '';
-            if (e.dataTransfer.files.length) {
-                handleFile(e.dataTransfer.files[0]);
-            }
-        });
-
-        fileInput.addEventListener('change', (e) => {
-            if (e.target.files.length) {
-                handleFile(e.target.files[0]);
-            }
-        });
-
-        function handleFile(file) {
-            if (!file.name.match(/\.(txt|tle)$/i)) {
-                alert('Please upload a .txt or .tle file');
-                return;
-            }
-
-            const formData = new FormData();
-            formData.append('tle_file', file);
-
-            // Show loading if you have the element, otherwise just wait
-            if (loading) loading.style.display = 'block';
-            resultContainer.style.display = 'none';
-
-            fetch('/screen', {
-                method: 'POST',
-                headers: {
-                    'Authorization': 'Bearer stx-authorized-user'
-                },
-                body: formData
-            })
-            .then(res => res.json())
-            .then(data => {
-                if (loading) loading.style.display = 'none';
-
-                if (data.error) {
-                    alert('Error: ' + data.error);
-                    return;
-                }
-                if (data.status === 'suppressed') {
-                    alert('Event suppressed (GREEN risk level)');
-                    return;
-                }
-
-                // SUCCESS
-                resultContainer.style.display = 'block';
-
-                const risk = data.risk_level;
-                statusBadge.textContent = `RISK LEVEL: ${risk}`;
-                statusBadge.className = `result-status ${risk.toLowerCase()}`;
-
-                const t = data.threats[0];
-                resultTitle.textContent = `${t.asset} vs ${t.intruder}`;
-
-                resultContent.innerHTML = `
-                    <strong>TCA (UTC):</strong> ${t.tca}<br>
-                    <strong>Miss Distance:</strong> ${t.min_km} km<br>
-                    <strong>Rel Velocity:</strong> ${t.relative_velocity_kms} km/s<br>
-                    <strong>Collision Probability:</strong> ${t.pc}<br><br>
-                    <strong>RIC Geometry (km):</strong><br>
-                     • Radial:     ${Number(data.geometry.radial).toFixed(3)}<br>
-                     • In-Track:   ${Number(data.geometry.in_track).toFixed(3)}<br>
-                     • Cross-Track: ${Number(data.geometry.cross_track).toFixed(3)}<br><br>
-                    <strong>Operational Profile:</strong> ${data.profile}
-                `;
-
-                if (data.decision) {
-                    recommendationBox.style.display = 'block';
-                    recommendationText.innerHTML = data.decision.replace(/\n/g, '<br>');
-                }
-
-                if (data.pdf_url) {
-                    downloadLink.href = '/' + data.pdf_url;
-                    downloadLink.style.display = 'inline-block';
-                    downloadLink.scrollIntoView({ behavior: 'smooth' });
-                }
-            })
-            .catch(err => {
-                if (loading) loading.style.display = 'none';
-                console.error(err);
-                alert('Upload failed - check console or server logs');
-            });
-        }
-    </script>
+    <script src="main.js"></script>
 </body>
 </html>
