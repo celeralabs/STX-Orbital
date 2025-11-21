@@ -64,11 +64,18 @@ const DashboardPage = {
         .then(r => {
             if (!r.ok) {
                 if (r.status === 401) throw new Error("Unauthorized – Enterprise license required");
-                return r.json().then(data => { throw new Error(data.error || "Server error") });
+                return r.json().then(data => { throw new Error(data.error || "Server error"); });
             }
             return r.json();
         })
         .then(data => {
+            // Async path: server queued a background job
+            if (data.status === 'queued' && data.job_id) {
+                this.pollJobStatus(data.job_id);
+                return;
+            }
+
+            // Synchronous/legacy path (in case backend ever returns direct results)
             if (data.status === "all_clear") {
                 this.showAllClear(data.message, data.screening_stats);
             } else if (data.threats && data.threats.length > 0) {
@@ -78,6 +85,51 @@ const DashboardPage = {
             }
         })
         .catch(err => this.showError(err.message || "Upload failed"));
+    },
+
+    pollJobStatus(jobId, attempt = 0) {
+        const maxAttempts = 120; // ~4 minutes at 2s interval
+        const delayMs = 2000;
+
+        fetch(`/screen_status/${jobId}`, {
+            method: 'GET',
+            headers: { 'Authorization': 'Bearer stx-authorized-user' }
+        })
+        .then(r => {
+            if (!r.ok) {
+                return r.json()
+                    .then(data => { throw new Error(data.error || `Status poll failed (${r.status})`); })
+                    .catch(() => { throw new Error(`Status poll failed (${r.status})`); });
+            }
+            return r.json();
+        })
+        .then(data => {
+            // Still running – keep polling
+            if (data.status === 'queued' || data.status === 'running') {
+                if (attempt >= maxAttempts) {
+                    throw new Error("Screening timed out. Try again or reduce catalog limit.");
+                }
+                setTimeout(() => this.pollJobStatus(jobId, attempt + 1), delayMs);
+                return;
+            }
+
+            // Completed successfully
+            if (data.status === 'all_clear') {
+                this.showAllClear(data.message, data.screening_stats);
+            } else if (data.status === 'success' && data.threats && data.threats.length > 0) {
+                this.showThreats(data);
+            } else if (data.status === 'failed') {
+                this.showError(data.error || "Screening job failed.");
+            } else {
+                // Fallback: use legacy display assumptions
+                if (data.threats && data.threats.length > 0) {
+                    this.showThreats(data);
+                } else {
+                    this.showAllClear("No conjunctions found above reporting threshold.");
+                }
+            }
+        })
+        .catch(err => this.showError(err.message || "Status polling failed"));
     },
 
     showProcessing() {
