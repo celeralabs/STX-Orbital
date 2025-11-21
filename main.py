@@ -11,7 +11,7 @@ app = Flask(__name__)
 print(f"--- STX ORBITAL v3.1 PRODUCTION (TIERED SCREENING) ---")
 print(f"Root Directory: {BASE_DIR}")
 print(f"Tier 1: Manned Assets (ISS, Tiangong)")
-print(f"Tier 2: High-Risk Objects (decay, unstable)")
+print(f"Tier 2: High-Risk Auto-Detection (decay, unstable)")
 print(f"Tier 3: Full Catalog Sweep")
 
 # --- EXPLICIT FILE ROUTES ---
@@ -46,17 +46,16 @@ def download_pdf(filename):
     return "File not found", 404
 
 
-# === TIERED SCREENING ENDPOINT ===
+# === SIMPLIFIED TIERED SCREENING ENDPOINT ===
 @app.route('/screen', methods=['POST'])
 def screen_fleet():
     """
     Production conjunction screening with tiered priority system.
     
     Tier 1: MANNED ASSETS (ISS, Tiangong) - Always checked first
-    Tier 2: HIGH-RISK (Decay, unstable, LEOP) - Unpredictable threats
-    Tier 3: CATALOG SWEEP - Comprehensive check of all objects
+    Tier 2/3: CATALOG SWEEP - Check all objects, auto-detect high-risk during sweep
     
-    For single satellite: Screens against all three tiers
+    For single satellite: Screens against manned + catalog
     For fleet: Screens primary against fleet members only
     """
     auth_header = request.headers.get('Authorization')
@@ -76,7 +75,7 @@ def screen_fleet():
 
     # Get configuration parameters
     suppress_green = request.form.get('suppress_green', 'false').lower() == 'true'
-    catalog_limit = int(request.form.get('catalog_limit', '5000'))  # Limit catalog sweep for performance
+    catalog_limit = int(request.form.get('catalog_limit', '5000'))  # Default 5k objects
     
     # Create fresh engine instance
     active_engine = STXConjunctionEngine(suppress_green=suppress_green)
@@ -185,92 +184,8 @@ def screen_fleet():
                 except Exception as e:
                     print(f"  ! Error screening {target_name}: {e}")
             
-            # ===== TIER 2: HIGH-RISK OBJECTS =====
-            print(">>> TIER 2: Checking high-risk objects (decay, unstable)...")
-            
-            if active_engine.st_client:
-                try:
-                    # Query objects with high decay rates or unstable orbits
-                    # Eccentricity > 0.1 OR perigee < 300 km OR recent epoch (active)
-                    high_risk_query = active_engine.st_client.gp_history(
-                        EPOCH='>now-7',  # Active within last 7 days
-                        orderby='NORAD_CAT_ID asc',
-                        limit=500,  # Check top 500 high-risk
-                        format='tle'
-                    )
-                    
-                    if high_risk_query:
-                        hr_lines = high_risk_query.splitlines()
-                        hr_count = 0
-                        
-                        for j in range(0, len(hr_lines), 3):
-                            if j + 2 >= len(hr_lines):
-                                break
-                            
-                            hr_name = hr_lines[j].strip() or "UNKNOWN"
-                            hr_l1 = hr_lines[j + 1]
-                            hr_l2 = hr_lines[j + 2]
-                            
-                            if not (hr_l1.startswith('1 ') and hr_l2.startswith('2 ')):
-                                continue
-                            
-                            try:
-                                hr_norad = int(hr_l2[2:7].strip())
-                                
-                                # Skip if already checked in manned tier
-                                if hr_norad in [25544, 48274]:
-                                    continue
-                                
-                                # Assess risk priority
-                                priority, reason = active_engine.assess_risk_priority(hr_norad, hr_l1, hr_l2)
-                                
-                                if priority != "HIGH-RISK":
-                                    continue  # Not actually high-risk
-                                
-                                hr_tle = [hr_name, hr_l1, hr_l2]
-                                
-                                telemetry = active_engine.screen_conjunction(
-                                    primary_tle, hr_tle,
-                                    primary_norad=norad_id,
-                                    secondary_norad=hr_norad
-                                )
-                                
-                                screening_stats["high_risk_checked"] += 1
-                                hr_count += 1
-                                
-                                if telemetry:  # Not suppressed
-                                    last_telemetry = telemetry
-                                    ai_decision = active_engine.generate_maneuver_plan(telemetry)
-                                    pdf_filename = active_engine.generate_pdf_report(telemetry, ai_decision)
-                                    pc_display = "< 1e-10" if telemetry['pc'] < 1e-10 else f"{telemetry['pc']:.2e}"
-                                    
-                                    threats.append({
-                                        "asset": telemetry['primary'],
-                                        "intruder": telemetry['secondary'],
-                                        "priority": "HIGH-RISK",
-                                        "priority_reason": reason,
-                                        "min_km": round(telemetry['min_dist_km'], 3),
-                                        "relative_velocity_kms": round(telemetry['relative_velocity_kms'], 2),
-                                        "pc": pc_display,
-                                        "tca": telemetry['tca_utc'],
-                                        "pdf_url": pdf_filename,
-                                        "risk_level": telemetry['risk_level']
-                                    })
-                                    print(f"  ✓ HIGH-RISK {hr_norad}: {telemetry['risk_level']} @ {telemetry['min_dist_km']:.1f} km ({reason})")
-                                
-                                if hr_count >= 100:  # Limit high-risk checks
-                                    break
-                                    
-                            except Exception as e:
-                                continue
-                        
-                        print(f"  ✓ Checked {screening_stats['high_risk_checked']} high-risk objects")
-                        
-                except Exception as e:
-                    print(f"  ! High-risk query failed: {e}")
-            
-            # ===== TIER 3: CATALOG SWEEP =====
-            print(f">>> TIER 3: Catalog sweep (limit={catalog_limit})...")
+            # ===== TIER 2/3: CATALOG SWEEP WITH HIGH-RISK DETECTION =====
+            print(f">>> TIER 2/3: Catalog sweep (limit={catalog_limit}) with high-risk detection...")
             
             if active_engine.st_client:
                 try:
@@ -299,7 +214,7 @@ def screen_fleet():
                             try:
                                 cat_norad = int(cat_l2[2:7].strip())
                                 
-                                # Skip if already checked
+                                # Skip if already checked in manned tier
                                 if cat_norad in [25544, 48274]:
                                     continue
                                 
@@ -314,7 +229,7 @@ def screen_fleet():
                                 screening_stats["catalog_checked"] += 1
                                 cat_count += 1
                                 
-                                if cat_count % 500 == 0:
+                                if cat_count % 1000 == 0:
                                     print(f"  ... {cat_count} objects checked")
                                 
                                 if telemetry:  # Not suppressed
@@ -323,8 +238,11 @@ def screen_fleet():
                                     pdf_filename = active_engine.generate_pdf_report(telemetry, ai_decision)
                                     pc_display = "< 1e-10" if telemetry['pc'] < 1e-10 else f"{telemetry['pc']:.2e}"
                                     
-                                    # Assess priority for catalog object
+                                    # Assess priority for this object
                                     priority, reason = active_engine.assess_risk_priority(cat_norad, cat_l1, cat_l2)
+                                    
+                                    if priority == "HIGH-RISK":
+                                        screening_stats["high_risk_checked"] += 1
                                     
                                     threats.append({
                                         "asset": telemetry['primary'],
@@ -343,9 +261,12 @@ def screen_fleet():
                                 continue
                         
                         print(f"  ✓ Catalog sweep complete: {screening_stats['catalog_checked']} objects checked")
+                        print(f"  ✓ High-risk objects detected: {screening_stats['high_risk_checked']}")
                         
                 except Exception as e:
                     print(f"  ! Catalog sweep failed: {e}")
+                    import traceback
+                    traceback.print_exc()
 
         # === FLEET MODE (NO CATALOG SWEEP) ===
         else:
@@ -373,7 +294,7 @@ def screen_fleet():
                     pdf_filename = active_engine.generate_pdf_report(telemetry, ai_decision)
                     pc_display = "< 1e-10" if telemetry['pc'] < 1e-10 else f"{telemetry['pc']:.2e}"
                     
-                    # Fleet objects default to CATALOG priority
+                    # Fleet objects: assess priority
                     priority, reason = active_engine.assess_risk_priority(sec_norad, l1, l2)
                     
                     threats.append({
