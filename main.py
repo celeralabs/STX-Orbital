@@ -4,6 +4,7 @@ import time
 import traceback as tb
 import threading
 import uuid
+from fpdf import FPDF
 
 # GET ABSOLUTE PATH
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -178,13 +179,6 @@ def perform_screening(content, suppress_green=False, catalog_limit=5000):
 
                 if telemetry:
                     last_telemetry = telemetry
-                    try:
-                        ai_decision = active_engine.generate_maneuver_plan(telemetry)
-                        pdf_filename = active_engine.generate_pdf_report(telemetry, ai_decision)
-                    except Exception as e:
-                        print(f"  ! PDF generation failed: {e}")
-                        pdf_filename = "report_generation_failed.pdf"
-
                     pc_display = "< 1e-10" if telemetry['pc'] < 1e-10 else f"{telemetry['pc']:.2e}"
 
                     threats.append({
@@ -196,8 +190,9 @@ def perform_screening(content, suppress_green=False, catalog_limit=5000):
                         "relative_velocity_kms": round(telemetry['relative_velocity_kms'], 2),
                         "pc": pc_display,
                         "tca": telemetry['tca_utc'],
-                        "pdf_url": pdf_filename,
-                        "risk_level": telemetry['risk_level']
+                        "pdf_url": None,               # per-event PDF handled later
+                        "risk_level": telemetry['risk_level'],
+                        "telemetry": telemetry         # stash full telemetry
                     })
                     print(f"  ✓ {target_name}: {telemetry['risk_level']} @ {telemetry['min_dist_km']:.1f} km")
                 else:
@@ -253,14 +248,6 @@ def perform_screening(content, suppress_green=False, catalog_limit=5000):
 
                     if telemetry:
                         last_telemetry = telemetry
-
-                        try:
-                            ai_decision = active_engine.generate_maneuver_plan(telemetry)
-                            pdf_filename = active_engine.generate_pdf_report(telemetry, ai_decision)
-                        except Exception as e:
-                            print(f"  ! PDF gen failed for {cat_norad}: {e}")
-                            pdf_filename = "report_generation_failed.pdf"
-
                         pc_display = "< 1e-10" if telemetry['pc'] < 1e-10 else f"{telemetry['pc']:.2e}"
 
                         # Assess priority
@@ -281,8 +268,9 @@ def perform_screening(content, suppress_green=False, catalog_limit=5000):
                             "relative_velocity_kms": round(telemetry['relative_velocity_kms'], 2),
                             "pc": pc_display,
                             "tca": telemetry['tca_utc'],
-                            "pdf_url": pdf_filename,
-                            "risk_level": telemetry['risk_level']
+                            "pdf_url": None,              # per-event PDF handled later
+                            "risk_level": telemetry['risk_level'],
+                            "telemetry": telemetry        # stash full telemetry
                         })
 
                 except Exception:
@@ -315,8 +303,6 @@ def perform_screening(content, suppress_green=False, catalog_limit=5000):
 
                 if telemetry:
                     last_telemetry = telemetry
-                    ai_decision = active_engine.generate_maneuver_plan(telemetry)
-                    pdf_filename = active_engine.generate_pdf_report(telemetry, ai_decision)
                     pc_display = "< 1e-10" if telemetry['pc'] < 1e-10 else f"{telemetry['pc']:.2e}"
 
                     priority, reason = active_engine.assess_risk_priority(sec_norad, l1, l2)
@@ -330,8 +316,9 @@ def perform_screening(content, suppress_green=False, catalog_limit=5000):
                         "relative_velocity_kms": round(telemetry['relative_velocity_kms'], 2),
                         "pc": pc_display,
                         "tca": telemetry['tca_utc'],
-                        "pdf_url": pdf_filename,
-                        "risk_level": telemetry['risk_level']
+                        "pdf_url": None,               # per-event PDF handled later
+                        "risk_level": telemetry['risk_level'],
+                        "telemetry": telemetry         # stash full telemetry
                     })
             except Exception as e:
                 print(f"  ! Fleet member {name} error: {e}")
@@ -356,40 +343,52 @@ def perform_screening(content, suppress_green=False, catalog_limit=5000):
     # Build response
     print(f"✓ {len(threats)} threats found ({stats['total_time_sec']}s)")
 
-    # Use last_telemetry for AI decision / profile if available
-    decision = "No actionable events"
-    profile = "N/A"
-    profile_type = "N/A"
-    geometry = {}
-    has_ric_plot = False
-    maneuver = None
+    # Determine top threat for detailed PDF / AI decision
+    top_idx = None
+    for idx, t in enumerate(threats):
+        if t.get("risk_level") in ("RED", "YELLOW"):
+            top_idx = idx
+            break
+    if top_idx is None:
+        top_idx = 0  # all GREEN; use closest for context, but no event PDF by default
 
-    if last_telemetry:
+    top_threat = threats[top_idx]
+    top_telemetry = top_threat.get("telemetry")
+    pdf_filename = None
+    decision_text = "No actionable events"
+
+    if top_telemetry:
         try:
-            decision = active_engine.generate_maneuver_plan(last_telemetry)
+            decision_text = active_engine.generate_maneuver_plan(top_telemetry)
         except Exception as e:
             print(f"  ! AI decision generation failed: {e}")
+            decision_text = "AI decision unavailable. Use telemetry only."
 
-        profile = last_telemetry.get('profile', profile)
-        profile_type = last_telemetry.get('profile_type', profile_type)
-        geometry = last_telemetry.get('geometry', geometry)
-        has_ric_plot = last_telemetry.get('ric_plot') is not None
-        maneuver = last_telemetry.get('maneuver')
+        # Only generate per-event PDF if this is YELLOW/RED
+        if top_threat.get("risk_level") in ("RED", "YELLOW"):
+            try:
+                pdf_filename = active_engine.generate_pdf_report(top_telemetry, decision_text)
+                threats[top_idx]["pdf_url"] = pdf_filename
+            except Exception as e:
+                print(f"  ! PDF generation failed for top threat: {e}")
+                pdf_filename = "report_generation_failed.pdf"
+                threats[top_idx]["pdf_url"] = pdf_filename
 
+    # Build response payload
     response_data = {
         "status": "success",
         "risk_level": threats[0].get('risk_level', 'UNKNOWN'),
         "threats": threats,
-        "decision": decision,
-        "profile": profile,
-        "profile_type": profile_type,
-        "geometry": geometry,
-        "has_ric_plot": has_ric_plot,
+        "decision": decision_text,
+        "profile": top_telemetry.get('profile', 'N/A') if top_telemetry else "N/A",
+        "profile_type": top_telemetry.get('profile_type', 'N/A') if top_telemetry else "N/A",
+        "geometry": top_telemetry.get('geometry', {}) if top_telemetry else {},
+        "has_ric_plot": top_telemetry.get('ric_plot') is not None if top_telemetry else False,
         "screening_stats": stats
     }
 
-    if maneuver:
-        response_data['maneuver'] = maneuver
+    if top_telemetry and top_telemetry.get('maneuver'):
+        response_data['maneuver'] = top_telemetry['maneuver']
 
     return response_data
 
@@ -412,6 +411,81 @@ def run_screen_job(job_id, content, suppress_green, catalog_limit):
         tb.print_exc()
         print(f"=== END JOB ERROR ===\n")
         set_job_failed(job_id, err_msg)
+
+
+@app.route('/summary_pdf/<job_id>', methods=['GET'])
+def summary_pdf(job_id):
+    """
+    Generate a consolidated summary PDF for a completed screening job.
+    Includes all conjunction events (GREEN/YELLOW/RED).
+    """
+    with JOBS_LOCK:
+        job = JOBS.get(job_id)
+
+    if not job:
+        return jsonify({"error": "Unknown job_id"}), 404
+
+    if job["status"] not in ("all_clear", "success"):
+        return jsonify({"error": "Job not complete"}), 400
+
+    result = job.get("result") or {}
+    threats = result.get("threats", [])
+    stats = result.get("screening_stats", {})
+
+    # Build summary PDF
+    try:
+        pdf = FPDF()
+        pdf.add_page()
+
+        pdf.set_font("Arial", "B", 16)
+        pdf.cell(0, 10, "STX ORBITAL // SCREENING SUMMARY", 0, 1, "C")
+        pdf.set_font("Arial", "I", 10)
+        pdf.cell(0, 8, f"Generated: {time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime())}", 0, 1, "C")
+        pdf.ln(4)
+
+        # Stats block
+        pdf.set_font("Arial", "B", 12)
+        pdf.cell(0, 8, "SCREENING STATISTICS", 0, 1)
+        pdf.set_font("Courier", "", 9)
+        pdf.cell(0, 5, f"Manned Assets Checked:   {stats.get('manned_checked', 0)}", 0, 1)
+        pdf.cell(0, 5, f"High-Risk Objects:       {stats.get('high_risk_checked', 0)}", 0, 1)
+        pdf.cell(0, 5, f"Catalog Objects:         {stats.get('catalog_checked', 0)}", 0, 1)
+        pdf.cell(0, 5, f"Total Time:              {stats.get('total_time_sec', 0)} s", 0, 1)
+
+        pdf.ln(4)
+        pdf.set_font("Arial", "B", 12)
+        pdf.cell(0, 8, "CONJUNCTION EVENTS", 0, 1)
+        pdf.set_font("Courier", "", 9)
+
+        if not threats:
+            pdf.cell(0, 5, "No conjunction events reported (all clear).", 0, 1)
+        else:
+            for t in threats:
+                pdf.ln(2)
+                pdf.cell(0, 5, f"ASSET:     {t.get('asset', 'N/A')}", 0, 1)
+                pdf.cell(0, 5, f"INTRUDER:  {t.get('intruder', 'N/A')}", 0, 1)
+                pdf.cell(0, 5, f"PRIORITY:  {t.get('priority', 'N/A')} ({t.get('priority_reason', '')})", 0, 1)
+                pdf.cell(0, 5, f"RISK LVL:  {t.get('risk_level', 'N/A')}", 0, 1)
+                pdf.cell(0, 5, f"MISS:      {t.get('min_km', 'N/A')} km", 0, 1)
+                pdf.cell(0, 5, f"REL VEL:   {t.get('relative_velocity_kms', 'N/A')} km/s", 0, 1)
+                pdf.cell(0, 5, f"Pc:        {t.get('pc', 'N/A')}", 0, 1)
+                pdf.cell(0, 5, f"TCA:       {t.get('tca', 'N/A')}", 0, 1)
+                pdf.ln(2)
+
+        pdf.ln(4)
+        pdf.set_font("Arial", "I", 8)
+        pdf.cell(0, 5, "Data Source: U.S. Space Force (18 SDS) via Space-Track.org", 0, 1)
+        pdf.cell(0, 5, "Propagator: SGP4/SDP4 via Skyfield", 0, 1)
+        pdf.cell(0, 5, "Report: STX Orbital Autonomy Engine v3.1", 0, 1)
+
+        filename = f"STX_Summary_{job_id}.pdf"
+        output_path = os.path.join(BASE_DIR, filename)
+        pdf.output(output_path)
+
+        return jsonify({"pdf_url": filename})
+    except Exception as e:
+        print(f"  ! Summary PDF generation failed: {e}")
+        return jsonify({"error": "Failed to generate summary PDF"}), 500
 
 
 # --- FILE ROUTES ---
