@@ -69,7 +69,7 @@
     <script>
         const fileInput = document.getElementById('fileInput');
         const dropzone = document.getElementById('dropzone');
-        const loading = document.getElementById('loading');
+        const loading = document.getElementById('loading') || { style: { display: 'none' } };
         const resultContainer = document.getElementById('resultContainer');
         const statusBadge = document.getElementById('statusBadge');
         const resultTitle = document.getElementById('resultTitle');
@@ -78,7 +78,7 @@
         const recommendationText = document.getElementById('recommendationText');
         const downloadLink = document.getElementById('downloadLink');
 
-        // Drag & drop + click to select
+        // Drag & drop
         dropzone.addEventListener('click', () => fileInput.click());
 
         dropzone.addEventListener('dragover', (e) => {
@@ -104,22 +104,17 @@
             }
         });
 
-        document.getElementById('logoutBtn').addEventListener('click', (e) => {
-            e.preventDefault();
-            location.href = 'login.html';
-        });
-
         function handleFile(file) {
-            if (!file.name.toLowerCase().endsWith('.txt') && !file.name.toLowerCase().endsWith('.tle')) {
+            if (!file.name.match(/\.(txt|tle)$/i)) {
                 alert('Please upload a .txt or .tle file');
                 return;
             }
 
             const formData = new FormData();
-            formData.append('tle_file', file);        // backend accepts any key, but we use 'tle_file'
-            formData.append('suppress_green', 'false');
+            formData.append('tle_file', file);
 
-            loading.style.display = 'block';
+            // Show loading if you have the element, otherwise just wait
+            if (loading) loading.style.display = 'block';
             resultContainer.style.display = 'none';
 
             fetch('/screen', {
@@ -129,24 +124,23 @@
                 },
                 body: formData
             })
-            .then(response => response.json())
+            .then(res => res.json())
             .then(data => {
-                loading.style.display = 'none';
+                if (loading) loading.style.display = 'none';
 
                 if (data.error) {
                     alert('Error: ' + data.error);
                     return;
                 }
-
                 if (data.status === 'suppressed') {
                     alert('Event suppressed (GREEN risk level)');
                     return;
                 }
 
-                // Success - show results
+                // SUCCESS
                 resultContainer.style.display = 'block';
 
-                const risk = data.risk_level || 'GREEN';
+                const risk = data.risk_level;
                 statusBadge.textContent = `RISK LEVEL: ${risk}`;
                 statusBadge.className = `result-status ${risk.toLowerCase()}`;
 
@@ -156,34 +150,30 @@
                 resultContent.innerHTML = `
                     <strong>TCA (UTC):</strong> ${t.tca}<br>
                     <strong>Miss Distance:</strong> ${t.min_km} km<br>
-                    <strong>Relative Velocity:</strong> ${t.relative_velocity_kms} km/s<br>
+                    <strong>Rel Velocity:</strong> ${t.relative_velocity_kms} km/s<br>
                     <strong>Collision Probability:</strong> ${t.pc}<br><br>
                     <strong>RIC Geometry (km):</strong><br>
-                     • Radial: ${data.geometry.radial:.3f}<br>
-                     • In-Track: ${data.geometry.in_track:.3f}<br>
-                     • Cross-Track: ${data.geometry.cross_track:.3f}<br><br>
+                     • Radial:     ${Number(data.geometry.radial).toFixed(3)}<br>
+                     • In-Track:   ${Number(data.geometry.in_track).toFixed(3)}<br>
+                     • Cross-Track: ${Number(data.geometry.cross_track).toFixed(3)}<br><br>
                     <strong>Operational Profile:</strong> ${data.profile}
                 `;
 
                 if (data.decision) {
                     recommendationBox.style.display = 'block';
                     recommendationText.innerHTML = data.decision.replace(/\n/g, '<br>');
-                } else {
-                    recommendationBox.style.display = 'none';
                 }
 
-                // PDF download link
                 if (data.pdf_url) {
                     downloadLink.href = '/' + data.pdf_url;
                     downloadLink.style.display = 'inline-block';
-                    // Optional: auto-trigger download
-                    downloadLink.click();
+                    downloadLink.scrollIntoView({ behavior: 'smooth' });
                 }
             })
             .catch(err => {
-                loading.style.display = 'none';
+                if (loading) loading.style.display = 'none';
                 console.error(err);
-                alert('Upload failed - check console');
+                alert('Upload failed - check console or server logs');
             });
         }
     </script>
