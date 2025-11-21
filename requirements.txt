@@ -1,0 +1,7 @@
+flask
+skyfield
+xai-sdk
+python-dotenv
+spacetrack
+fpdf
+gunicorn
