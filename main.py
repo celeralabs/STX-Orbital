@@ -2,35 +2,62 @@ from flask import Flask, request, jsonify, send_from_directory
 from stx_engine_v2 import STXConjunctionEngine
 import os
 
-# FORCE ABSOLUTE PATH (Fixes "Not Found" errors on Windows)
+# 1. GET ABSOLUTE PATH (Crucial for Windows)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-app = Flask(__name__, static_url_path='')
+app = Flask(__name__)
+# Initialize Engine
 engine = STXConjunctionEngine()
 
-# Print file list to debug (This will show up in your terminal when you run it)
-print(f"Server running in: {BASE_DIR}")
-print(f"Files detected: {os.listdir(BASE_DIR)}")
+print(f"--- SERVER LAUNCHED ---")
+print(f"Root Directory: {BASE_DIR}")
+
+# --- EXPLICIT FILE ROUTES ---
 
 @app.route('/')
 def root():
-    # Explicitly serve index.html from the absolute path
     return send_from_directory(BASE_DIR, 'index.html')
 
-@app.route('/<path:path>')
-def static_files(path):
-    return send_from_directory(BASE_DIR, path)
+@app.route('/index.html')
+def home():
+    return send_from_directory(BASE_DIR, 'index.html')
 
+@app.route('/login.html')
+def login_page():
+    return send_from_directory(BASE_DIR, 'login.html')
+
+@app.route('/dashboard.html')
+def dashboard_page():
+    return send_from_directory(BASE_DIR, 'dashboard.html')
+
+@app.route('/style.css')
+def serve_css():
+    return send_from_directory(BASE_DIR, 'style.css', mimetype='text/css')
+
+@app.route('/main.js')
+def serve_js():
+    return send_from_directory(BASE_DIR, 'main.js', mimetype='text/javascript')
+
+# --- PDF DOWNLOAD ROUTE ---
+@app.route('/<path:filename>')
+def download_pdf(filename):
+    if filename.endswith('.pdf'):
+        return send_from_directory(BASE_DIR, filename)
+    return "File not found", 404
+
+# --- API ENDPOINT ---
 @app.route('/screen', methods=['POST'])
 def screen_fleet():
     auth_header = request.headers.get('Authorization')
     if auth_header != 'Bearer stx-authorized-user':
         return jsonify({"error": "Unauthorized: Payment Required"}), 401
 
-    asset_id = 25544  # ISS
-    threat_id = 48274 # Tiangong
+    # DEMO MODE: Always screen ISS vs Tiangong
+    asset_id = 25544
+    threat_id = 48274
 
     try:
+        print(">>> Processing Request...")
         asset_tle = engine.fetch_live_tle(asset_id)
         threat_tle = engine.fetch_live_tle(threat_id)
         
@@ -53,12 +80,10 @@ def screen_fleet():
             "decision": ai_decision
         })
     except Exception as e:
+        print(f"ERROR: {e}")
         return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
-    # Get the port from the environment variable (Railway sets this)
-    # Default to 5000 only if running locally
+    # CRITICAL FIX: Listen on the port Railway assigns
     port = int(os.environ.get("PORT", 5000))
-    
-    # Listen on 0.0.0.0 (Required for Docker/Railway)
     app.run(host='0.0.0.0', port=port)
