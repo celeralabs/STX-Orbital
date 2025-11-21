@@ -1,6 +1,6 @@
 flask==3.0.0
 skyfield==1.46
-xai-sdk==0.1.0
+xai-sdk==1.4.0
 python-dotenv==1.0.0
 spacetrack==1.2.0
 fpdf==1.7.2
