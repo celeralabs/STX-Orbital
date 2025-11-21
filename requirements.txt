@@ -1,7 +1,8 @@
-flask
-skyfield
-xai-sdk
-python-dotenv
-spacetrack
-fpdf
-gunicorn
+flask==3.0.0
+skyfield==1.46
+xai-sdk==0.1.0
+python-dotenv==1.0.0
+spacetrack==1.2.0
+fpdf==1.7.2
+gunicorn==21.2.0
+numpy==1.24.3
