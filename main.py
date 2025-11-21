@@ -23,7 +23,7 @@ except Exception as e:
     STXConjunctionEngine = None
 
 # -----------------------------
-# Simple in-memory job storage
+# In-memory job storage
 # -----------------------------
 JOBS = {}
 JOBS_LOCK = threading.Lock()
@@ -71,7 +71,8 @@ def perform_screening(content, suppress_green=False, catalog_limit=5000):
     Args:
         content (str): Raw TLE file content.
         suppress_green (bool): Whether to suppress GREEN events.
-        catalog_limit (int): Limit for catalog sweep.
+        catalog_limit (int): Limit on number of catalog candidates
+                             that receive full high-fidelity screening.
 
     Returns:
         dict: Response payload with either:
@@ -104,6 +105,7 @@ def perform_screening(content, suppress_green=False, catalog_limit=5000):
         tle_list = []
         i = 0
         while i < len(lines):
+            # Case 1: line starts with '1 ' -> no name line
             if lines[i].startswith('1 '):
                 name = "SATELLITE"
                 line1 = lines[i]
@@ -111,6 +113,7 @@ def perform_screening(content, suppress_green=False, catalog_limit=5000):
                     break
                 line2 = lines[i + 1]
             else:
+                # Case 2: name line followed by line1/line2
                 name = lines[i]
                 if i + 2 >= len(lines):
                     break
@@ -144,7 +147,7 @@ def perform_screening(content, suppress_green=False, catalog_limit=5000):
         "manned_checked": 0,
         "high_risk_checked": 0,
         "catalog_checked": 0,
-        "total_time_sec": 0
+        "total_time_sec": 0.0
     }
     start_time = time.time()
 
@@ -154,7 +157,9 @@ def perform_screening(content, suppress_green=False, catalog_limit=5000):
         primary_tle = [name, l1, l2]
         print(f">>> SINGLE SAT MODE: {name} (NORAD {norad_id})")
 
-        # TIER 1: Manned assets
+        # ------------------------------------------------------------------
+        # TIER 1: Manned assets (ISS, Tiangong)
+        # ------------------------------------------------------------------
         print(">>> Tier 1: Manned assets")
         for target_id, target_name in [(25544, "ISS"), (48274, "Tiangong")]:
             try:
@@ -202,98 +207,93 @@ def perform_screening(content, suppress_green=False, catalog_limit=5000):
                 print(f"  ! {target_name} error: {e}")
                 tb.print_exc()
 
-        # TIER 2/3: Catalog sweep
-        print(f">>> Tier 2/3: Catalog sweep (limit={catalog_limit})")
+        # ------------------------------------------------------------------
+        # TIER 2/3: Full catalog sweep via staged pipeline
+        # ------------------------------------------------------------------
+        print(f">>> Tier 2/3: Catalog sweep (pipeline, catalog_limit={catalog_limit})")
 
-        if active_engine.st_client:
-            try:
-                catalog_query = active_engine.st_client.tle_latest(
-                    orderby='NORAD_CAT_ID asc',
-                    limit=catalog_limit,
-                    format='tle'
-                )
+        try:
+            # Ask engine for candidates using full catalog + prefilters
+            candidates = active_engine.get_catalog_candidates_for_primary(
+                primary_tle,
+                primary_norad=norad_id,
+                days=7,
+                coarse_points=300,
+                coarse_distance_km=80.0,
+                altitude_margin_km=150.0,
+                inc_margin_deg=30.0,
+            )
 
-                if catalog_query:
-                    cat_lines = catalog_query.splitlines()
-                    cat_count = 0
+            # Optional: honor catalog_limit as a safety cap on high-fidelity passes
+            if catalog_limit and catalog_limit > 0:
+                candidates = candidates[:catalog_limit]
 
-                    for j in range(0, len(cat_lines), 3):
-                        if j + 2 >= len(cat_lines):
-                            break
+            print(f"  ✓ Pipeline produced {len(candidates)} candidate objects for full screening")
+
+            for ci, info in enumerate(candidates, start=1):
+                cat_norad = info["norad_id"]
+
+                # Skip manned (already handled in Tier 1)
+                if cat_norad in (25544, 48274):
+                    continue
+
+                cat_name = info["name"] or f"RSO {cat_norad}"
+                cat_l1 = info["l1"]
+                cat_l2 = info["l2"]
+                cat_tle = [cat_name, cat_l1, cat_l2]
+
+                try:
+                    telemetry = active_engine.screen_conjunction(
+                        primary_tle, cat_tle,
+                        primary_norad=norad_id,
+                        secondary_norad=cat_norad
+                    )
+
+                    stats["catalog_checked"] += 1
+
+                    if telemetry:
+                        last_telemetry = telemetry
 
                         try:
-                            cat_name = cat_lines[j].strip() or "UNKNOWN"
-                            cat_l1 = cat_lines[j + 1]
-                            cat_l2 = cat_lines[j + 2]
+                            ai_decision = active_engine.generate_maneuver_plan(telemetry)
+                            pdf_filename = active_engine.generate_pdf_report(telemetry, ai_decision)
+                        except Exception as e:
+                            print(f"  ! PDF gen failed for {cat_norad}: {e}")
+                            pdf_filename = "report_generation_failed.pdf"
 
-                            if not (cat_l1.startswith('1 ') and cat_l2.startswith('2 ')):
-                                continue
+                        pc_display = "< 1e-10" if telemetry['pc'] < 1e-10 else f"{telemetry['pc']:.2e}"
 
-                            cat_norad = int(cat_l2[2:7].strip())
+                        # Assess priority
+                        try:
+                            priority, reason = active_engine.assess_risk_priority(cat_norad, cat_l1, cat_l2)
+                            if priority == "HIGH-RISK":
+                                stats["high_risk_checked"] += 1
+                        except Exception as e:
+                            print(f"  ! Risk assessment failed for {cat_norad}: {e}")
+                            priority, reason = ("CATALOG", "Standard catalog object")
 
-                            # Skip manned
-                            if cat_norad in [25544, 48274]:
-                                continue
+                        threats.append({
+                            "asset": telemetry['primary'],
+                            "intruder": telemetry['secondary'],
+                            "priority": priority,
+                            "priority_reason": reason,
+                            "min_km": round(telemetry['min_dist_km'], 3),
+                            "relative_velocity_kms": round(telemetry['relative_velocity_kms'], 2),
+                            "pc": pc_display,
+                            "tca": telemetry['tca_utc'],
+                            "pdf_url": pdf_filename,
+                            "risk_level": telemetry['risk_level']
+                        })
 
-                            cat_tle = [cat_name, cat_l1, cat_l2]
+                except Exception:
+                    # Silent fail per-object; you can log more here if desired
+                    continue
 
-                            telemetry = active_engine.screen_conjunction(
-                                primary_tle, cat_tle,
-                                primary_norad=norad_id,
-                                secondary_norad=cat_norad
-                            )
+            print(f"  ✓ Complete: {stats['catalog_checked']} fully screened, {stats['high_risk_checked']} high-risk")
 
-                            stats["catalog_checked"] += 1
-                            cat_count += 1
-
-                            if cat_count % 1000 == 0:
-                                print(f"  ... {cat_count} checked")
-
-                            if telemetry:
-                                last_telemetry = telemetry
-
-                                try:
-                                    ai_decision = active_engine.generate_maneuver_plan(telemetry)
-                                    pdf_filename = active_engine.generate_pdf_report(telemetry, ai_decision)
-                                except Exception as e:
-                                    print(f"  ! PDF gen failed for {cat_norad}: {e}")
-                                    pdf_filename = "report_generation_failed.pdf"
-
-                                pc_display = "< 1e-10" if telemetry['pc'] < 1e-10 else f"{telemetry['pc']:.2e}"
-
-                                # Assess priority
-                                try:
-                                    priority, reason = active_engine.assess_risk_priority(cat_norad, cat_l1, cat_l2)
-                                    if priority == "HIGH-RISK":
-                                        stats["high_risk_checked"] += 1
-                                except Exception as e:
-                                    print(f"  ! Risk assessment failed for {cat_norad}: {e}")
-                                    priority, reason = ("CATALOG", "Standard catalog object")
-
-                                threats.append({
-                                    "asset": telemetry['primary'],
-                                    "intruder": telemetry['secondary'],
-                                    "priority": priority,
-                                    "priority_reason": reason,
-                                    "min_km": round(telemetry['min_dist_km'], 3),
-                                    "relative_velocity_kms": round(telemetry['relative_velocity_kms'], 2),
-                                    "pc": pc_display,
-                                    "tca": telemetry['tca_utc'],
-                                    "pdf_url": pdf_filename,
-                                    "risk_level": telemetry['risk_level']
-                                })
-
-                        except Exception:
-                            # Silent fail for individual catalog objects
-                            continue
-
-                    print(f"  ✓ Complete: {stats['catalog_checked']} checked, {stats['high_risk_checked']} high-risk")
-
-            except Exception as e:
-                print(f"  ! Catalog sweep failed: {e}")
-                tb.print_exc()
-        else:
-            print("  ! Space-Track client not available")
+        except Exception as e:
+            print(f"  ! Catalog sweep pipeline failed: {e}")
+            tb.print_exc()
 
     # === FLEET MODE ===
     else:
@@ -335,12 +335,14 @@ def perform_screening(content, suppress_green=False, catalog_limit=5000):
                     })
             except Exception as e:
                 print(f"  ! Fleet member {name} error: {e}")
+                tb.print_exc()
 
+    # --- Finalize stats and response ---
     stats["total_time_sec"] = round(time.time() - start_time, 2)
 
-    # Sort by priority
+    # Sort threats by priority then miss distance
     priority_order = {"MANNED": 0, "HIGH-RISK": 1, "CATALOG": 2}
-    threats.sort(key=lambda x: (priority_order.get(x["priority"], 3), -x.get("min_km", 9999)))
+    threats.sort(key=lambda x: (priority_order.get(x["priority"], 3), x.get("min_km", 9999)))
 
     # No threats
     if not threats:
@@ -354,23 +356,40 @@ def perform_screening(content, suppress_green=False, catalog_limit=5000):
     # Build response
     print(f"✓ {len(threats)} threats found ({stats['total_time_sec']}s)")
 
+    # Use last_telemetry for AI decision / profile if available
+    decision = "No actionable events"
+    profile = "N/A"
+    profile_type = "N/A"
+    geometry = {}
+    has_ric_plot = False
+    maneuver = None
+
+    if last_telemetry:
+        try:
+            decision = active_engine.generate_maneuver_plan(last_telemetry)
+        except Exception as e:
+            print(f"  ! AI decision generation failed: {e}")
+
+        profile = last_telemetry.get('profile', profile)
+        profile_type = last_telemetry.get('profile_type', profile_type)
+        geometry = last_telemetry.get('geometry', geometry)
+        has_ric_plot = last_telemetry.get('ric_plot') is not None
+        maneuver = last_telemetry.get('maneuver')
+
     response_data = {
         "status": "success",
         "risk_level": threats[0].get('risk_level', 'UNKNOWN'),
         "threats": threats,
-        "decision": (
-            active_engine.generate_maneuver_plan(last_telemetry)
-            if last_telemetry else "No actionable events"
-        ),
-        "profile": last_telemetry.get('profile', 'N/A') if last_telemetry else "N/A",
-        "profile_type": last_telemetry.get('profile_type', 'N/A') if last_telemetry else "N/A",
-        "geometry": last_telemetry.get('geometry', {}) if last_telemetry else {},
-        "has_ric_plot": last_telemetry.get('ric_plot') is not None if last_telemetry else False,
+        "decision": decision,
+        "profile": profile,
+        "profile_type": profile_type,
+        "geometry": geometry,
+        "has_ric_plot": has_ric_plot,
         "screening_stats": stats
     }
 
-    if last_telemetry and last_telemetry.get('maneuver'):
-        response_data['maneuver'] = last_telemetry['maneuver']
+    if maneuver:
+        response_data['maneuver'] = maneuver
 
     return response_data
 
