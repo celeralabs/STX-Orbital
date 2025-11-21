@@ -1,3 +1,7 @@
+import os
+if 'PORT' not in os.environ:
+    os.environ['PORT'] = '8080'
+
 from flask import Flask, request, jsonify, send_from_directory
 from stx_engine_v2 import STXConjunctionEngine
 import os
