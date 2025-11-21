@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>STX Orbital – Portal Access</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <nav class="navbar">
+        <div class="nav-container">
+            <div class="nav-brand">
+                <span class="brand-icon">◆</span>
+                <span class="brand-text">STX ORBITAL</span>
+            </div>
+            <ul class="nav-menu">
+                <li><a href="index.html">Home</a></li>
+            </ul>
+        </div>
+    </nav>
+
+    <div class="login-container">
+        <div class="login-box">
+            <div class="login-header">
+                <h1>Portal Access</h1>
+                <p class="login-tagline">Authorized Personnel Only</p>
+            </div>
+            <form id="loginForm">
+                <div class="form-group">
+                    <label class="form-label" for="accessCode">Access Code</label>
+                    <input 
+                        type="password" 
+                        id="accessCode" 
+                        class="form-input" 
+                        placeholder="Enter your access code"
+                        autocomplete="off"
+                        required
+                    >
+                </div>
+                <button type="submit" class="btn btn-primary" style="width: 100%;">
+                    Authenticate
+                </button>
+                <div id="errorMessage" class="form-error" style="display: none;"></div>
+            </form>
+        </div>
+    </div>
+
+    <script src="main.js"></script>
+</body>
+</html>
