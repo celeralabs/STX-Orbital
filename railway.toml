@@ -2,25 +2,29 @@
 builder = "NIXPACKS"
 
 [deploy]
-startCommand = "gunicorn main:app --bind 0.0.0.0:${PORT:-8080} --timeout 120 --workers 1"
+startCommand = "gunicorn main:app --bind 0.0.0.0:$PORT --timeout 120 --workers 1"
 restartPolicyType = "ON_FAILURE"
-healthcheckPath = "/"
-healthcheckTimeout = 100
 ```
 
-**And simplify your Procfile to:**
+**Or skip railway.toml entirely and just use this Procfile:**
 ```
-web: gunicorn main:app --bind 0.0.0.0:${PORT:-8080} --timeout 120
+web: gunicorn main:app --bind 0.0.0.0:$PORT --timeout 120 --workers 1 --log-level debug
 ```
 
-**The `${PORT:-8080}` syntax** provides a fallback if PORT isn't set.
+**Then in Railway dashboard:**
 
-**Also check:**
-1. Railway dashboard → Settings → Environment → Is "PORT" variable visible?
-2. If not, add it manually: `PORT` = `8080`
-
-**Alternative nuclear option - hardcode for testing:**
-
-Temporarily change Procfile to:
+1. **Settings → Deploy → Custom Start Command** - paste this directly:
 ```
-web: PORT=8080 gunicorn main:app --bind 0.0.0.0:8080
+   gunicorn main:app --bind 0.0.0.0:$PORT --timeout 120 --workers 1
+```
+
+2. **Variables tab → Add:**
+   - `PORT` = `8080`
+
+3. **Settings → Networking:**
+   - Make sure "Public Networking" is enabled
+   - Verify a domain is generated
+
+**Redeploy and check logs for:**
+```
+Listening at: http://0.0.0.0:<some_port_other_than_8080>
