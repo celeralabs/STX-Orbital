@@ -1,20 +1,22 @@
-import os
-if 'PORT' not in os.environ:
-    os.environ['PORT'] = '8080'
-
 from flask import Flask, request, jsonify, send_from_directory
-from stx_engine_v2 import STXConjunctionEngine
+from stx_engine_v3 import STXConjunctionEngine
 import os
 
-# 1. GET ABSOLUTE PATH (Crucial for Windows)
+# 1. GET ABSOLUTE PATH
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 app = Flask(__name__)
-# Initialize Engine
-engine = STXConjunctionEngine()
 
-print(f"--- SERVER LAUNCHED ---")
+# Initialize engines for different profiles
+engines = {
+    "ISS_CLASS": STXConjunctionEngine(profile="ISS_CLASS"),
+    "COMMERCIAL": STXConjunctionEngine(profile="COMMERCIAL"),
+    "CONSTELLATION": STXConjunctionEngine(profile="CONSTELLATION")
+}
+
+print(f"--- STX ORBITAL v3.0 LAUNCHED ---")
 print(f"Root Directory: {BASE_DIR}")
+print(f"Operational Profiles: ISS_CLASS, COMMERCIAL, CONSTELLATION")
 
 # --- EXPLICIT FILE ROUTES ---
 
@@ -56,12 +58,16 @@ def screen_fleet():
     if auth_header != 'Bearer stx-authorized-user':
         return jsonify({"error": "Unauthorized: Payment Required"}), 401
 
+    # Get profile from request or default to COMMERCIAL
+    profile = request.form.get('profile', 'COMMERCIAL')
+    engine = engines.get(profile, engines['COMMERCIAL'])
+
     # DEMO MODE: Always screen ISS vs Tiangong
     asset_id = 25544
     threat_id = 48274
 
     try:
-        print(">>> Processing Request...")
+        print(f">>> Processing Request with {profile} profile...")
         asset_tle = engine.fetch_live_tle(asset_id)
         threat_tle = engine.fetch_live_tle(threat_id)
         
@@ -72,22 +78,35 @@ def screen_fleet():
         ai_decision = engine.generate_maneuver_plan(telemetry)
         pdf_filename = engine.generate_pdf_report(telemetry, ai_decision)
         
-        return jsonify({
+        response_data = {
             "status": "success",
+            "risk_level": telemetry['risk_level'],
             "threats": [{
                 "asset": telemetry['primary'],
                 "intruder": telemetry['secondary'],
                 "min_km": round(telemetry['min_dist_km'], 3),
+                "pc": f"{telemetry['pc']:.2e}",
                 "tca": telemetry['tca_utc'],
-                "pdf_url": pdf_filename
+                "pdf_url": pdf_filename,
+                "risk_level": telemetry['risk_level']
             }],
-            "decision": ai_decision
-        })
+            "decision": ai_decision,
+            "profile": telemetry['profile'],
+            "geometry": telemetry['geometry']
+        }
+        
+        # Add maneuver data if available
+        if telemetry.get('maneuver'):
+            response_data['maneuver'] = telemetry['maneuver']
+        
+        return jsonify(response_data)
+        
     except Exception as e:
         print(f"ERROR: {e}")
+        import traceback
+        traceback.print_exc()
         return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
-    # Use PORT if set, otherwise default to 5000 (standard Flask port)
     port = int(os.environ.get("PORT", 5000))
     app.run(host='0.0.0.0', port=port)

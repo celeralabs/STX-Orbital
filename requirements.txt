@@ -6,3 +6,4 @@ spacetrack
 fpdf
 gunicorn
 numpy
+scipy
