@@ -1,4 +1,4 @@
-// STX Orbital - Main JavaScript Module
+// STX Orbital - Main JavaScript Module (Tiered Screening)
 const Auth = {
     isAuthenticated() { return sessionStorage.getItem('stx_auth') === 'true'; },
     authenticate(code) {
@@ -53,6 +53,8 @@ const DashboardPage = {
         this.showProcessing();
         const formData = new FormData();
         formData.append('file', file);
+        // Add catalog_limit if needed (default 5000)
+        // formData.append('catalog_limit', '10000');
 
         fetch('/screen', {
             method: 'POST',
@@ -67,8 +69,8 @@ const DashboardPage = {
             return r.json();
         })
         .then(data => {
-            if (data.status === "suppressed") {
-                this.showAllClear(data.message);
+            if (data.status === "all_clear") {
+                this.showAllClear(data.message, data.screening_stats);
             } else if (data.threats && data.threats.length > 0) {
                 this.showThreats(data);
             } else {
@@ -87,11 +89,16 @@ const DashboardPage = {
         container.style.display = 'block';
         badge.className = 'result-status status-processing';
         badge.textContent = 'ANALYZING';
-        title.textContent = 'Running High-Fidelity Conjunction Screening';
-        content.innerHTML = `<p>Propagating orbits with SGP4 • Fetching live catalog • Computing Pc & RIC geometry <span class="loading"></span></p>`;
+        title.textContent = 'Running Tiered Conjunction Screening';
+        content.innerHTML = `<p>
+            Tier 1: Checking manned assets (ISS, Tiangong)<br>
+            Tier 2: Checking high-risk objects (decay, unstable)<br>
+            Tier 3: Catalog sweep<br>
+            <span class="loading"></span>
+        </p>`;
     },
 
-    showAllClear(message) {
+    showAllClear(message, stats) {
         const badge = document.getElementById('statusBadge');
         const title = document.getElementById('resultTitle');
         const content = document.getElementById('resultContent');
@@ -100,7 +107,21 @@ const DashboardPage = {
         badge.className = 'result-status status-clear';
         badge.textContent = 'ALL CLEAR';
         title.textContent = 'No Actionable Conjunctions';
-        content.innerHTML = `<p style="color:var(--success);font-size:1.1em;">${message}</p>`;
+        
+        let statsHTML = '';
+        if (stats) {
+            statsHTML = `
+                <div style="margin-top:20px; padding:16px; background:var(--surface-light); border-radius:4px; font-size:0.9em;">
+                    <strong>Screening Statistics:</strong><br>
+                    Manned assets checked: ${stats.manned_checked}<br>
+                    High-risk objects checked: ${stats.high_risk_checked}<br>
+                    Catalog objects checked: ${stats.catalog_checked}<br>
+                    Total time: ${stats.total_time_sec}s
+                </div>
+            `;
+        }
+        
+        content.innerHTML = `<p style="color:var(--success);font-size:1.1em;">${message}</p>${statsHTML}`;
     },
 
     showThreats(data) {
@@ -112,37 +133,78 @@ const DashboardPage = {
 
         // Determine overall risk color
         const hasRed = data.threats.some(t => t.risk_level === 'RED');
+        const hasManned = data.threats.some(t => t.priority === 'MANNED');
+        
         badge.className = hasRed ? 'result-status status-threat' : 'result-status status-processing';
-        badge.textContent = hasRed ? 'CRITICAL CONJUNCTION(S)' : 'YELLOW ALERT';
+        badge.textContent = hasManned ? 'MANNED ASSET CONJUNCTION' : (hasRed ? 'CRITICAL CONJUNCTION(S)' : 'YELLOW ALERT');
         title.textContent = `Screening Complete – ${data.threats.length} Threat(s) Found`;
 
-        // Build threat cards
-        let threatsHTML = data.threats.map(t => `
-            <div style="margin:24px 0; padding:20px; background:var(--surface-light); border-radius:8px; border-left:5px solid ${t.risk_level==='RED'?'var(--danger)':'var(--primary)'}">
-                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
-                    <strong style="font-size:1.2em;">${t.asset}</strong>
-                    <span style="background:${t.risk_level==='RED'?'var(--danger)':'var(--primary)'}; color:#000; padding:4px 12px; border-radius:4px; font-size:0.8em; font-weight:bold;">
-                        ${t.risk_level}
-                    </span>
+        // Build threat cards with priority indicators
+        let threatsHTML = data.threats.map(t => {
+            // Priority badge colors
+            const priorityColors = {
+                'MANNED': 'background:#ff0000; color:#fff;',
+                'HIGH-RISK': 'background:#ff8800; color:#fff;',
+                'CATALOG': 'background:#00d9ff; color:#000;'
+            };
+            const priorityStyle = priorityColors[t.priority] || priorityColors['CATALOG'];
+            
+            // Risk level border
+            const borderColor = t.risk_level === 'RED' ? 'var(--danger)' : 'var(--primary)';
+            
+            return `
+                <div style="margin:24px 0; padding:20px; background:var(--surface-light); border-radius:8px; border-left:5px solid ${borderColor}">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; flex-wrap:wrap; gap:8px;">
+                        <strong style="font-size:1.2em;">${t.asset}</strong>
+                        <div style="display:flex; gap:8px;">
+                            <span style="${priorityStyle} padding:4px 12px; border-radius:4px; font-size:0.75em; font-weight:bold; text-transform:uppercase;">
+                                ${t.priority}
+                            </span>
+                            <span style="background:${t.risk_level==='RED'?'var(--danger)':'var(--primary)'}; color:${t.risk_level==='RED'?'#fff':'#000'}; padding:4px 12px; border-radius:4px; font-size:0.75em; font-weight:bold;">
+                                ${t.risk_level}
+                            </span>
+                        </div>
+                    </div>
+                    <div style="margin-bottom:8px;">
+                        <strong>Intruder:</strong> <span style="color:${t.risk_level==='RED'?'var(--danger)':''}">${t.intruder}</span>
+                    </div>
+                    ${t.priority_reason ? `
+                        <div style="margin-bottom:12px; padding:8px; background:rgba(255,255,255,0.05); border-radius:4px; font-size:0.85em; font-style:italic;">
+                            ${t.priority_reason}
+                        </div>
+                    ` : ''}
+                    <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px; margin:12px 0; font-size:0.95em;">
+                        <div><strong>Miss Distance:</strong> ${t.min_km} km</div>
+                        <div><strong>TCA:</strong> ${t.tca}</div>
+                        <div><strong>Rel Velocity:</strong> ${t.relative_velocity_kms} km/s</div>
+                        <div><strong>Pc:</strong> ${t.pc}</div>
+                    </div>
+                    <a href="${t.pdf_url}" target="_blank" class="btn btn-primary" style="display:inline-block; margin-top:8px; padding:10px 20px; font-size:0.9em;">
+                        Download PDF Report
+                    </a>
                 </div>
-                <div style="margin-bottom:8 negativity;">
-                    <strong>Intruder:</strong> <span style="color:${t.risk_level==='RED'?'var(--danger)':''}">${t.intruder}</span>
+            `;
+        }).join('');
+
+        // Add screening statistics
+        if (data.screening_stats) {
+            const stats = data.screening_stats;
+            threatsHTML += `
+                <div style="margin:24px 0; padding:20px; background:var(--surface-light); border-radius:8px; border:1px solid var(--border);">
+                    <h3 style="color:var(--primary); margin-bottom:12px; font-size:1em;">Screening Statistics</h3>
+                    <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr)); gap:12px; font-size:0.9em;">
+                        <div><strong>Manned Assets:</strong> ${stats.manned_checked}</div>
+                        <div><strong>High-Risk Objects:</strong> ${stats.high_risk_checked}</div>
+                        <div><strong>Catalog Objects:</strong> ${stats.catalog_checked}</div>
+                        <div><strong>Total Time:</strong> ${stats.total_time_sec}s</div>
+                    </div>
                 </div>
-                <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px; margin:12px 0; font-size:0.95em;">
-                    <div><strong>Miss Distance:</strong> ${t.min_km} km</div>
-                    <div><strong>TCA:</strong> ${t.tca}</div>
-                    <div><strong>Rel Velocity:</strong> ${t.relative_velocity_kms} km/s</div>
-                    <div><strong>Pc:</strong> ${t.pc}</div>
-                </div>
-                <a href="${t.pdf_url}" target="_blank" class="btn btn-primary" style="display:inline-block; margin-top:8px; padding:10px 20px; font-size:0.9em;">
-                    Download PDF Report
-                </a>
-            </div>
-        `).join('');
+            `;
+        }
 
         content.innerHTML = threatsHTML;
 
-        // Show AI decision for the highest-risk event
+        // Show AI decision for highest-priority event
         recommendationBox.style.display = 'block';
         recommendationList.innerHTML = `<pre style="white-space: pre-wrap; background:transparent; border:none; padding:0; color:var(--text-muted);">${data.decision}</pre>`;
     },

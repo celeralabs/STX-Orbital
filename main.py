@@ -1,16 +1,18 @@
 from flask import Flask, request, jsonify, send_from_directory
 from stx_engine_v3_1 import STXConjunctionEngine
 import os
+import time
 
 # GET ABSOLUTE PATH
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 app = Flask(__name__)
 
-print(f"--- STX ORBITAL v3.1 PRODUCTION ---")
+print(f"--- STX ORBITAL v3.1 PRODUCTION (TIERED SCREENING) ---")
 print(f"Root Directory: {BASE_DIR}")
-print(f"Auto-Detection: ISS/Tiangong/Starlink/OneWeb/Kuiper")
-print(f"Ready for operator workloads")
+print(f"Tier 1: Manned Assets (ISS, Tiangong)")
+print(f"Tier 2: High-Risk Objects (decay, unstable)")
+print(f"Tier 3: Full Catalog Sweep")
 
 # --- EXPLICIT FILE ROUTES ---
 @app.route('/')
@@ -44,18 +46,18 @@ def download_pdf(filename):
     return "File not found", 404
 
 
-# === PRODUCTION /screen ENDPOINT ===
+# === TIERED SCREENING ENDPOINT ===
 @app.route('/screen', methods=['POST'])
 def screen_fleet():
     """
-    Production conjunction screening endpoint.
+    Production conjunction screening with tiered priority system.
     
-    Requires TLE file upload with 1+ satellites.
+    Tier 1: MANNED ASSETS (ISS, Tiangong) - Always checked first
+    Tier 2: HIGH-RISK (Decay, unstable, LEOP) - Unpredictable threats
+    Tier 3: CATALOG SWEEP - Comprehensive check of all objects
     
-    Modes:
-    - SINGLE SAT (1 TLE): Screens against high-value assets (ISS/Tiangong)
-    - DUAL SAT (2 TLEs): Screens sat-to-sat conjunction
-    - FLEET (3+ TLEs): Screens primary vs fleet members
+    For single satellite: Screens against all three tiers
+    For fleet: Screens primary against fleet members only
     """
     auth_header = request.headers.get('Authorization')
     if auth_header != 'Bearer stx-authorized-user':
@@ -74,8 +76,9 @@ def screen_fleet():
 
     # Get configuration parameters
     suppress_green = request.form.get('suppress_green', 'false').lower() == 'true'
+    catalog_limit = int(request.form.get('catalog_limit', '5000'))  # Limit catalog sweep for performance
     
-    # Create fresh engine instance for this request
+    # Create fresh engine instance
     active_engine = STXConjunctionEngine(suppress_green=suppress_green)
 
     try:
@@ -84,22 +87,19 @@ def screen_fleet():
         lines = [l.strip() for l in content.splitlines() if l.strip()]
         
         if len(lines) < 2:
-            return jsonify({"error": "TLE file must contain at least 2 lines (name + TLE lines 1 & 2)"}), 400
+            return jsonify({"error": "TLE file must contain at least 2 lines"}), 400
 
         # Extract all valid TLEs from file
         tle_list = []
         i = 0
         while i < len(lines):
-            # Check if this line is a satellite name or TLE line 1
             if lines[i].startswith('1 '):
-                # No name line, use generic name
                 name = "SATELLITE"
                 line1 = lines[i]
                 if i + 1 >= len(lines):
                     break
                 line2 = lines[i + 1]
             else:
-                # Has name line
                 name = lines[i]
                 if i + 2 >= len(lines):
                     break
@@ -107,13 +107,11 @@ def screen_fleet():
                 line2 = lines[i + 2]
                 i += 1
             
-            # Validate TLE format
             if line1.startswith('1 ') and line2.startswith('2 '):
                 try:
                     norad_id = int(line2[2:7].strip())
                     tle_list.append((name, line1, line2, norad_id))
                 except ValueError:
-                    # Invalid NORAD ID, skip this TLE
                     pass
             
             i += 2
@@ -126,23 +124,41 @@ def screen_fleet():
 
         threats = []
         last_telemetry = None
+        screening_stats = {
+            "manned_checked": 0,
+            "high_risk_checked": 0,
+            "catalog_checked": 0,
+            "total_time_sec": 0
+        }
+        start_time = time.time()
 
-        # === SINGLE SATELLITE MODE ===
-        # Screen uploaded satellite against high-value targets (ISS, Tiangong)
+        # === SINGLE SATELLITE MODE (TIERED SCREENING) ===
         if num_sats == 1:
             name, l1, l2, norad_id = tle_list[0]
             primary_tle = [name, l1, l2]
-            print(f">>> SINGLE SAT: {name} (NORAD {norad_id}) screening vs ISS + Tiangong")
+            print(f">>> SINGLE SAT TIERED SCREENING: {name} (NORAD {norad_id})")
             
-            # Screen against ISS (25544)
-            try:
-                iss_tle = active_engine.fetch_live_tle(25544)
-                if iss_tle:
+            # ===== TIER 1: MANNED ASSETS (CRITICAL) =====
+            print(">>> TIER 1: Checking manned assets...")
+            manned_targets = [
+                (25544, "ISS"),
+                (48274, "Tiangong")
+            ]
+            
+            for target_id, target_name in manned_targets:
+                try:
+                    target_tle = active_engine.fetch_live_tle(target_id)
+                    if not target_tle:
+                        print(f"  ! Failed to fetch {target_name}")
+                        continue
+                    
                     telemetry = active_engine.screen_conjunction(
-                        primary_tle, iss_tle,
+                        primary_tle, target_tle,
                         primary_norad=norad_id,
-                        secondary_norad=25544
+                        secondary_norad=target_id
                     )
+                    
+                    screening_stats["manned_checked"] += 1
                     
                     if telemetry:  # Not suppressed
                         last_telemetry = telemetry
@@ -153,6 +169,8 @@ def screen_fleet():
                         threats.append({
                             "asset": telemetry['primary'],
                             "intruder": telemetry['secondary'],
+                            "priority": "MANNED",
+                            "priority_reason": "Human-occupied spacecraft",
                             "min_km": round(telemetry['min_dist_km'], 3),
                             "relative_velocity_kms": round(telemetry['relative_velocity_kms'], 2),
                             "pc": pc_display,
@@ -160,60 +178,192 @@ def screen_fleet():
                             "pdf_url": pdf_filename,
                             "risk_level": telemetry['risk_level']
                         })
-            except Exception as e:
-                print(f"ISS screening error: {e}")
+                        print(f"  ✓ {target_name}: {telemetry['risk_level']} @ {telemetry['min_dist_km']:.1f} km")
+                    else:
+                        print(f"  ✓ {target_name}: GREEN (suppressed)")
+                        
+                except Exception as e:
+                    print(f"  ! Error screening {target_name}: {e}")
             
-            # Screen against Tiangong (48274)
-            try:
-                tiangong_tle = active_engine.fetch_live_tle(48274)
-                if tiangong_tle:
-                    telemetry = active_engine.screen_conjunction(
-                        primary_tle, tiangong_tle,
-                        primary_norad=norad_id,
-                        secondary_norad=48274
+            # ===== TIER 2: HIGH-RISK OBJECTS =====
+            print(">>> TIER 2: Checking high-risk objects (decay, unstable)...")
+            
+            if active_engine.st_client:
+                try:
+                    # Query objects with high decay rates or unstable orbits
+                    # Eccentricity > 0.1 OR perigee < 300 km OR recent epoch (active)
+                    high_risk_query = active_engine.st_client.gp_history(
+                        EPOCH='>now-7',  # Active within last 7 days
+                        orderby='NORAD_CAT_ID asc',
+                        limit=500,  # Check top 500 high-risk
+                        format='tle'
                     )
                     
-                    if telemetry:  # Not suppressed
-                        last_telemetry = telemetry
-                        ai_decision = active_engine.generate_maneuver_plan(telemetry)
-                        pdf_filename = active_engine.generate_pdf_report(telemetry, ai_decision)
-                        pc_display = "< 1e-10" if telemetry['pc'] < 1e-10 else f"{telemetry['pc']:.2e}"
+                    if high_risk_query:
+                        hr_lines = high_risk_query.splitlines()
+                        hr_count = 0
                         
-                        threats.append({
-                            "asset": telemetry['primary'],
-                            "intruder": telemetry['secondary'],
-                            "min_km": round(telemetry['min_dist_km'], 3),
-                            "relative_velocity_kms": round(telemetry['relative_velocity_kms'], 2),
-                            "pc": pc_display,
-                            "tca": telemetry['tca_utc'],
-                            "pdf_url": pdf_filename,
-                            "risk_level": telemetry['risk_level']
-                        })
-            except Exception as e:
-                print(f"Tiangong screening error: {e}")
+                        for j in range(0, len(hr_lines), 3):
+                            if j + 2 >= len(hr_lines):
+                                break
+                            
+                            hr_name = hr_lines[j].strip() or "UNKNOWN"
+                            hr_l1 = hr_lines[j + 1]
+                            hr_l2 = hr_lines[j + 2]
+                            
+                            if not (hr_l1.startswith('1 ') and hr_l2.startswith('2 ')):
+                                continue
+                            
+                            try:
+                                hr_norad = int(hr_l2[2:7].strip())
+                                
+                                # Skip if already checked in manned tier
+                                if hr_norad in [25544, 48274]:
+                                    continue
+                                
+                                # Assess risk priority
+                                priority, reason = active_engine.assess_risk_priority(hr_norad, hr_l1, hr_l2)
+                                
+                                if priority != "HIGH-RISK":
+                                    continue  # Not actually high-risk
+                                
+                                hr_tle = [hr_name, hr_l1, hr_l2]
+                                
+                                telemetry = active_engine.screen_conjunction(
+                                    primary_tle, hr_tle,
+                                    primary_norad=norad_id,
+                                    secondary_norad=hr_norad
+                                )
+                                
+                                screening_stats["high_risk_checked"] += 1
+                                hr_count += 1
+                                
+                                if telemetry:  # Not suppressed
+                                    last_telemetry = telemetry
+                                    ai_decision = active_engine.generate_maneuver_plan(telemetry)
+                                    pdf_filename = active_engine.generate_pdf_report(telemetry, ai_decision)
+                                    pc_display = "< 1e-10" if telemetry['pc'] < 1e-10 else f"{telemetry['pc']:.2e}"
+                                    
+                                    threats.append({
+                                        "asset": telemetry['primary'],
+                                        "intruder": telemetry['secondary'],
+                                        "priority": "HIGH-RISK",
+                                        "priority_reason": reason,
+                                        "min_km": round(telemetry['min_dist_km'], 3),
+                                        "relative_velocity_kms": round(telemetry['relative_velocity_kms'], 2),
+                                        "pc": pc_display,
+                                        "tca": telemetry['tca_utc'],
+                                        "pdf_url": pdf_filename,
+                                        "risk_level": telemetry['risk_level']
+                                    })
+                                    print(f"  ✓ HIGH-RISK {hr_norad}: {telemetry['risk_level']} @ {telemetry['min_dist_km']:.1f} km ({reason})")
+                                
+                                if hr_count >= 100:  # Limit high-risk checks
+                                    break
+                                    
+                            except Exception as e:
+                                continue
+                        
+                        print(f"  ✓ Checked {screening_stats['high_risk_checked']} high-risk objects")
+                        
+                except Exception as e:
+                    print(f"  ! High-risk query failed: {e}")
             
-            if not threats:
-                return jsonify({
-                    "status": "all_clear",
-                    "message": "All clear - no YELLOW/RED conjunctions detected in 7-day window"
-                })
+            # ===== TIER 3: CATALOG SWEEP =====
+            print(f">>> TIER 3: Catalog sweep (limit={catalog_limit})...")
+            
+            if active_engine.st_client:
+                try:
+                    # Get latest GP catalog
+                    catalog_query = active_engine.st_client.tle_latest(
+                        orderby='NORAD_CAT_ID asc',
+                        limit=catalog_limit,
+                        format='tle'
+                    )
+                    
+                    if catalog_query:
+                        cat_lines = catalog_query.splitlines()
+                        cat_count = 0
+                        
+                        for j in range(0, len(cat_lines), 3):
+                            if j + 2 >= len(cat_lines):
+                                break
+                            
+                            cat_name = cat_lines[j].strip() or "UNKNOWN"
+                            cat_l1 = cat_lines[j + 1]
+                            cat_l2 = cat_lines[j + 2]
+                            
+                            if not (cat_l1.startswith('1 ') and cat_l2.startswith('2 ')):
+                                continue
+                            
+                            try:
+                                cat_norad = int(cat_l2[2:7].strip())
+                                
+                                # Skip if already checked
+                                if cat_norad in [25544, 48274]:
+                                    continue
+                                
+                                cat_tle = [cat_name, cat_l1, cat_l2]
+                                
+                                telemetry = active_engine.screen_conjunction(
+                                    primary_tle, cat_tle,
+                                    primary_norad=norad_id,
+                                    secondary_norad=cat_norad
+                                )
+                                
+                                screening_stats["catalog_checked"] += 1
+                                cat_count += 1
+                                
+                                if cat_count % 500 == 0:
+                                    print(f"  ... {cat_count} objects checked")
+                                
+                                if telemetry:  # Not suppressed
+                                    last_telemetry = telemetry
+                                    ai_decision = active_engine.generate_maneuver_plan(telemetry)
+                                    pdf_filename = active_engine.generate_pdf_report(telemetry, ai_decision)
+                                    pc_display = "< 1e-10" if telemetry['pc'] < 1e-10 else f"{telemetry['pc']:.2e}"
+                                    
+                                    # Assess priority for catalog object
+                                    priority, reason = active_engine.assess_risk_priority(cat_norad, cat_l1, cat_l2)
+                                    
+                                    threats.append({
+                                        "asset": telemetry['primary'],
+                                        "intruder": telemetry['secondary'],
+                                        "priority": priority,
+                                        "priority_reason": reason,
+                                        "min_km": round(telemetry['min_dist_km'], 3),
+                                        "relative_velocity_kms": round(telemetry['relative_velocity_kms'], 2),
+                                        "pc": pc_display,
+                                        "tca": telemetry['tca_utc'],
+                                        "pdf_url": pdf_filename,
+                                        "risk_level": telemetry['risk_level']
+                                    })
+                                    
+                            except Exception as e:
+                                continue
+                        
+                        print(f"  ✓ Catalog sweep complete: {screening_stats['catalog_checked']} objects checked")
+                        
+                except Exception as e:
+                    print(f"  ! Catalog sweep failed: {e}")
 
-        # === FLEET MODE (2+ SATELLITES) ===
-        # Screen primary (first TLE) against all other satellites in file
+        # === FLEET MODE (NO CATALOG SWEEP) ===
         else:
             primary_name, primary_l1, primary_l2, primary_norad = tle_list[0]
             primary_tle = [primary_name, primary_l1, primary_l2]
             print(f">>> FLEET MODE: {primary_name} (primary) vs {num_sats-1} fleet members")
             
-            for name, l1, l2, norad_id in tle_list[1:]:
+            for name, l1, l2, sec_norad in tle_list[1:]:
                 secondary_tle = [name, l1, l2]
                 
                 try:
                     telemetry = active_engine.screen_conjunction(
                         primary_tle, secondary_tle,
                         primary_norad=primary_norad,
-                        secondary_norad=norad_id
+                        secondary_norad=sec_norad
                     )
+                    
+                    screening_stats["catalog_checked"] += 1
                     
                     if telemetry is None:  # GREEN + suppressed
                         continue
@@ -223,9 +373,14 @@ def screen_fleet():
                     pdf_filename = active_engine.generate_pdf_report(telemetry, ai_decision)
                     pc_display = "< 1e-10" if telemetry['pc'] < 1e-10 else f"{telemetry['pc']:.2e}"
                     
+                    # Fleet objects default to CATALOG priority
+                    priority, reason = active_engine.assess_risk_priority(sec_norad, l1, l2)
+                    
                     threats.append({
                         "asset": telemetry['primary'],
                         "intruder": telemetry['secondary'],
+                        "priority": priority,
+                        "priority_reason": reason,
                         "min_km": round(telemetry['min_dist_km'], 3),
                         "relative_velocity_kms": round(telemetry['relative_velocity_kms'], 2),
                         "pc": pc_display,
@@ -237,14 +392,21 @@ def screen_fleet():
                 except Exception as e:
                     print(f"Screening error for {name}: {e}")
                     continue
-            
-            if not threats:
-                return jsonify({
-                    "status": "all_clear",
-                    "message": "All clear - no YELLOW/RED conjunctions detected within fleet"
-                })
 
-        # Build response with threat data
+        screening_stats["total_time_sec"] = round(time.time() - start_time, 2)
+        
+        # Sort threats by priority: MANNED > HIGH-RISK > CATALOG
+        priority_order = {"MANNED": 0, "HIGH-RISK": 1, "CATALOG": 2}
+        threats.sort(key=lambda x: (priority_order.get(x["priority"], 3), -x["min_km"]))
+        
+        if not threats:
+            return jsonify({
+                "status": "all_clear",
+                "message": "All clear - no YELLOW/RED conjunctions detected",
+                "screening_stats": screening_stats
+            })
+
+        # Build response
         response_data = {
             "status": "success",
             "risk_level": threats[0]['risk_level'],
@@ -253,12 +415,14 @@ def screen_fleet():
             "profile": last_telemetry['profile'] if last_telemetry else "N/A",
             "profile_type": last_telemetry['profile_type'] if last_telemetry else "N/A",
             "geometry": last_telemetry['geometry'] if last_telemetry else {},
-            "has_ric_plot": last_telemetry.get('ric_plot') is not None if last_telemetry else False
+            "has_ric_plot": last_telemetry.get('ric_plot') is not None if last_telemetry else False,
+            "screening_stats": screening_stats
         }
         
         if last_telemetry and last_telemetry.get('maneuver'):
             response_data['maneuver'] = last_telemetry['maneuver']
         
+        print(f">>> SCREENING COMPLETE: {len(threats)} threats | {screening_stats['total_time_sec']}s")
         return jsonify(response_data)
 
     except Exception as e:

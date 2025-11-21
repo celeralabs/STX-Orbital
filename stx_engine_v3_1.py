@@ -125,6 +125,9 @@ class STXConjunctionEngine:
         self.default_profile = profile
         self.suppress_green = suppress_green
         
+        # Priority target lists
+        self.manned_assets = [25544, 48274]  # ISS, Tiangong
+        
         if XAI_API_KEY:
             self.ai_client = Client(api_key=XAI_API_KEY)
         else:
@@ -140,6 +143,51 @@ class STXConjunctionEngine:
         else:
             self.st_client = None
             logger.warning("Space-Track credentials missing. Using simulation mode.")
+    
+    def assess_risk_priority(self, norad_id, tle_line1, tle_line2):
+        """
+        Determine threat priority based on object characteristics
+        
+        Returns: ("MANNED" | "HIGH-RISK" | "CATALOG", reason)
+        """
+        # Tier 1: Manned assets
+        if norad_id in self.manned_assets:
+            return ("MANNED", "Human-occupied spacecraft")
+        
+        # Parse TLE for risk assessment
+        try:
+            # Extract orbital parameters from TLE
+            # Line 1: positions 34-43 = mean motion derivative (decay rate)
+            # Line 2: positions 27-33 = eccentricity
+            # Line 2: positions 53-63 = mean motion
+            
+            mean_motion_derivative = float(tle_line1[33:43].strip())
+            eccentricity = float('0.' + tle_line2[26:33].strip())
+            mean_motion = float(tle_line2[52:63].strip())
+            
+            # Calculate approximate perigee altitude
+            # Mean motion in revs/day -> semi-major axis -> perigee
+            # a = (μ / (n * 2π / 86400)^2)^(1/3)
+            n_rad_per_sec = mean_motion * 2 * np.pi / 86400
+            mu = 398600.4418  # Earth's gravitational parameter (km^3/s^2)
+            semi_major_axis = (mu / (n_rad_per_sec ** 2)) ** (1/3)
+            perigee_alt = semi_major_axis * (1 - eccentricity) - 6378  # Earth radius
+            
+            # High-risk criteria
+            if perigee_alt < 300:
+                return ("HIGH-RISK", f"Decaying orbit (perigee {perigee_alt:.0f} km)")
+            
+            if eccentricity > 0.1:
+                return ("HIGH-RISK", f"Highly elliptical orbit (ecc {eccentricity:.3f})")
+            
+            if abs(mean_motion_derivative) > 0.00001:
+                return ("HIGH-RISK", f"Active decay/maneuver (dn/dt {mean_motion_derivative:.2e})")
+            
+        except Exception as e:
+            logger.debug(f"Risk assessment failed for {norad_id}: {e}")
+        
+        # Tier 3: Standard catalog object
+        return ("CATALOG", "Standard catalog object")
 
     def fetch_live_tle(self, norad_id):
         if not self.st_client: 
