@@ -3,58 +3,62 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>STX Orbital â€“ Screening Portal</title>
+    <title>STX Orbital – Screening Portal</title>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
     <nav class="navbar">
         <div class="nav-container">
             <div class="nav-brand">
-                <span class="brand-icon">â—†</span>
+                <span class="brand-icon">◆</span>
                 <span class="brand-text">STX ORBITAL</span>
             </div>
             <button class="nav-toggle" aria-label="Toggle navigation">
-                <span></span>
-                <span></span>
-                <span></span>
+                ☰
             </button>
             <ul class="nav-menu">
-                <li><a href="index.html">Home</a></li>
+                <li><a href="index.html">Overview</a></li>
+                <li><a href="dashboard.html" class="active">Screening Portal</a></li>
                 <li><a href="#" id="logoutBtn">Logout</a></li>
             </ul>
         </div>
     </nav>
 
-    <div class="dashboard-container">
+    <main class="main">
         <div class="container">
-            <div class="dashboard-header">
-                <h1>Fleet Screening Portal</h1>
-                <p>Upload TLE file for autonomous conjunction assessment. Analysis completes in 4-8 seconds.</p>
-            </div>
+            <section class="panel">
+                <header class="panel-header">
+                    <h1>Autonomous Conjunction Screening</h1>
+                    <p>Upload TLE data for your primary asset or fleet. STX will screen against manned assets and the full tracked catalog.</p>
+                </header>
 
-            <div id="dropzone" class="dropzone">
-                <div class="dropzone-icon">â¬¢</div>
-                <div class="dropzone-text">Drop TLE file here</div>
-                <div class="dropzone-subtext">or click to browse</div>
-                <input type="file" id="fileInput" accept=".tle,.txt" style="display: none;">
-                <button class="btn btn-primary" onclick="document.getElementById('fileInput').click()">
-                    Select File
-                </button>
-            </div>
+                <div id="dropzone" class="dropzone">
+                    <div class="dropzone-icon">⬢</div>
+                    <div class="dropzone-text">Drop TLE file here</div>
+                    <div class="dropzone-subtext">or click to browse</div>
+                    <input type="file" id="fileInput" accept=".tle,.txt" style="display: none;">
+                    <button class="btn btn-primary" onclick="document.getElementById('fileInput').click()">
+                        Select File
+                    </button>
+                </div>
 
-            <div id="resultContainer" style="display: none;">
-                <div class="result-box">
-                    <div id="statusBadge" class="result-status"></div>
-                    <h2 id="resultTitle" class="result-title"></h2>
-                    <div id="resultContent" class="result-content"></div>
-                    <div id="recommendationBox" class="recommendation-box" style="display: none;">
-                        <h3>Autonomous Decision</h3>
-                        <ul id="recommendationList"></ul>
+                <div id="resultContainer" style="display: none;">
+                    <div class="result-box">
+                        <div id="statusBadge" class="result-status"></div>
+                        <h2 id="resultTitle" class="result-title"></h2>
+                        <div id="resultContent" class="result-content"></div>
+                        <div id="recommendationBox" class="recommendation-box" style="display: none;">
+                            <h3>Autonomous Decision</h3>
+                            <ul id="recommendationList"></ul>
+                        </div>
+                        <button id="summaryPdfBtn" class="btn" style="display: none; margin-top: 16px;">
+                            Download Summary PDF
+                        </button>
                     </div>
                 </div>
-            </div>
+            </section>
         </div>
-    </div>
+    </main>
 
     <script src="main.js"></script>
 </body>
