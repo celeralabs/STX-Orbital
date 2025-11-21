@@ -1,0 +1,26 @@
+[build]
+builder = "NIXPACKS"
+
+[deploy]
+startCommand = "gunicorn main:app --bind 0.0.0.0:${PORT:-8080} --timeout 120 --workers 1"
+restartPolicyType = "ON_FAILURE"
+healthcheckPath = "/"
+healthcheckTimeout = 100
+```
+
+**And simplify your Procfile to:**
+```
+web: gunicorn main:app --bind 0.0.0.0:${PORT:-8080} --timeout 120
+```
+
+**The `${PORT:-8080}` syntax** provides a fallback if PORT isn't set.
+
+**Also check:**
+1. Railway dashboard → Settings → Environment → Is "PORT" variable visible?
+2. If not, add it manually: `PORT` = `8080`
+
+**Alternative nuclear option - hardcode for testing:**
+
+Temporarily change Procfile to:
+```
+web: PORT=8080 gunicorn main:app --bind 0.0.0.0:8080
