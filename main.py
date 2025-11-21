@@ -2,52 +2,24 @@ from flask import Flask, request, jsonify, send_from_directory
 from stx_engine_v2 import STXConjunctionEngine
 import os
 
-# 1. GET ABSOLUTE PATH (Crucial for Windows)
+# FORCE ABSOLUTE PATH (Fixes "Not Found" errors on Windows)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-app = Flask(__name__)
+app = Flask(__name__, static_url_path='')
 engine = STXConjunctionEngine()
 
-print(f"--- SERVER LAUNCHED ---")
-print(f"Root Directory: {BASE_DIR}")
-
-# --- EXPLICIT FILE ROUTES (Guarantees files load) ---
+# Print file list to debug (This will show up in your terminal when you run it)
+print(f"Server running in: {BASE_DIR}")
+print(f"Files detected: {os.listdir(BASE_DIR)}")
 
 @app.route('/')
 def root():
+    # Explicitly serve index.html from the absolute path
     return send_from_directory(BASE_DIR, 'index.html')
 
-@app.route('/index.html')
-def home():
-    return send_from_directory(BASE_DIR, 'index.html')
-
-@app.route('/login.html')
-def login_page():
-    return send_from_directory(BASE_DIR, 'login.html')
-
-@app.route('/dashboard.html')
-def dashboard_page():
-    return send_from_directory(BASE_DIR, 'dashboard.html')
-
-@app.route('/style.css')
-def serve_css():
-    # Forces correct MIME type for CSS
-    return send_from_directory(BASE_DIR, 'style.css', mimetype='text/css')
-
-@app.route('/main.js')
-def serve_js():
-    # Forces correct MIME type for JS
-    return send_from_directory(BASE_DIR, 'main.js', mimetype='text/javascript')
-
-# --- PDF DOWNLOAD ROUTE ---
-@app.route('/<path:filename>')
-def download_pdf(filename):
-    # This catches the generated PDF files (e.g., STX_Report_123456.pdf)
-    if filename.endswith('.pdf'):
-        return send_from_directory(BASE_DIR, filename)
-    return "File not found", 404
-
-# --- API ENDPOINT ---
+@app.route('/<path:path>')
+def static_files(path):
+    return send_from_directory(BASE_DIR, path)
 
 @app.route('/screen', methods=['POST'])
 def screen_fleet():
@@ -55,12 +27,10 @@ def screen_fleet():
     if auth_header != 'Bearer stx-authorized-user':
         return jsonify({"error": "Unauthorized: Payment Required"}), 401
 
-    # DEMO MODE: Always screen ISS vs Tiangong
-    asset_id = 25544
-    threat_id = 48274
+    asset_id = 25544  # ISS
+    threat_id = 48274 # Tiangong
 
     try:
-        print(">>> Processing Request...")
         asset_tle = engine.fetch_live_tle(asset_id)
         threat_tle = engine.fetch_live_tle(threat_id)
         
@@ -83,8 +53,12 @@ def screen_fleet():
             "decision": ai_decision
         })
     except Exception as e:
-        print(f"ERROR: {e}")
         return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
-    app.run(port=5000, debug=True)
+    # Get the port from the environment variable (Railway sets this)
+    # Default to 5000 only if running locally
+    port = int(os.environ.get("PORT", 5000))
+    
+    # Listen on 0.0.0.0 (Required for Docker/Railway)
+    app.run(host='0.0.0.0', port=port)
